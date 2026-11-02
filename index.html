@@ -1907,9 +1907,10 @@ function applySettings() {
   }
   resize();
 }
+const GAME_VER = 76;   // رقم النسخة: بيظهر في الإعدادات وبيقولك لما اللعبة تتحدّث
 function openSettings() {
   if (panelOpen()) return;
-  openPanel('الإعدادات', 'ظبط اللعبة على جهازك', body => {
+  openPanel('الإعدادات', `ظبط اللعبة على جهازك · النسخة ${GAME_VER}`, body => {
     const seg = (key, opts) => `<div class="seg">${opts.map(([v, l]) => `<button type="button" class="${String(settings[key]) === String(v) ? 'on' : ''}" data-act="set:${key}=${v}">${l}</button>`).join('')}</div>`;
     body.innerHTML = `
       <div class="setting"><b>جودة الرسم</b><small>لو الموبايل بيسخن أو اللعبة بتقطّع، خليها واطية.</small>${seg('quality', [['high', 'عالية'], ['medium', 'متوسطة'], ['low', 'واطية']])}</div>
@@ -9999,6 +10000,8 @@ function start(data) {
   state = migrate((data && data.state) || load() || newState());
   if (state.mgr && state.mgr.box > 0) { state.money += state.mgr.box; state.mgr.box = 0; }   // صندوق مدير المحل اتلغى: الفلوس بترجع المحفظة
   window.claude?.hot?.snapshot?.(() => ({ state }));
+  if (state.ver && state.ver < GAME_VER) setTimeout(() => toast(`✨ اللعبة اتحدّثت للنسخة ${GAME_VER}`, 'good', 5000), 1500);
+  state.ver = GAME_VER;
   updateHUD();
   applySettings();
   if (isTouch) toast(settings.joySide === 'right' ? 'اسحب باليمين عشان تمشي، وبالشمال عشان تبص حواليك' : 'اسحب بالشمال عشان تمشي، وباليمين عشان تبص حواليك', '', 4500);
