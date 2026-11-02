@@ -598,6 +598,8 @@ function advanceTime(mins, mode = 'awake') {
 function advanceCore(mins, mode = 'awake') {
   mkAdvance(mins);
   cnsAdvance(mins);
+  conHaulTick();
+  rentTick();
   investTick();
   cenArrivals();
   tradeTick();
@@ -7675,11 +7677,22 @@ let showTab = 'car', showArm = null, showColor = {};
 function showroomPanel() {
   showArm = null;
   openPanel('معرض الصحراوي للسيارات', 'أسعار حقيقية · بتستلم العربية جنب الطريق قدام المعرض', b => {
-    const tabs = Object.entries(FLEET_CATS).concat([['mine', '🔑 عربياتك']]);
+    const tabs = Object.entries(FLEET_CATS).concat([['rent', '📅 إيجار باليوم'], ['mine', '🔑 عربياتك']]);
     let body = '';
-    if (showTab === 'mine') {
+    if (showTab === 'rent') {
+      body = `<div class="msg">«مش لازم تشتري! أجّر عربية نقل أو معدة بالأيام، تستلمها هنا قدام المعرض وترجع لوحدها لما المدة تخلص.»</div>
+        <div class="chips">${[1, 3, 7, 30].map(d => `<button type="button" class="chip ${rentDays === d ? 'on' : ''}" data-act="rd:${d}">${d === 1 ? 'يوم' : d + ' أيام'}</button>`).join('')}</div>`
+        + Object.entries(FLEET).filter(([, F]) => ['light', 'heavy', 'equip'].includes(F.cat)).map(([id, F]) => { const d = rentDay(F), tot = d * rentDays; return `<div class="hr-row">
+          <div class="hr-top"><b>${F.name}</b><span>${fmt(d)} / يوم</span></div>
+          <small class="when">${F.desc}${F.cap ? ` · حمولة ${F.cap} ${F.unit || 'طن'}` : ''} · سعرها ${fmt(F.price)}</small>
+          <div class="actions"><button class="btn ${state.money >= tot ? 'pri' : ''}" type="button" data-act="rent:${id}" ${state.money >= tot ? '' : 'disabled'}>${showArm === 'rent:' + id ? `متأكد؟ ادفع ${fmt(tot)}` : `أجّر ${rentDays === 1 ? 'يوم' : rentDays + ' أيام'} · ${fmt(tot)}`}</button></div></div>`; }).join('');
+    } else if (showTab === 'mine') {
       const mine = Object.entries(state.vehicles).filter(([, v]) => v && v.model);
-      body = mine.length ? mine.map(([k, v]) => { const F = FLEET[v.model], back = Math.round(F.price * 0.75 / 1000) * 1000; return `<div class="hr-row">
+      body = mine.length ? mine.map(([k, v]) => { const F = FLEET[v.model], back = Math.round(F.price * 0.75 / 1000) * 1000;
+        if (v.rent) return `<div class="hr-row"><div class="hr-top"><b>📅 ${F.name} (إيجار)</b><span>${vehWhere(v)}</span></div>
+          <small class="when">بترجع للمعرض بعد ${fmtDur(v.rent.end - absNow())} · ${fmt(v.rent.daily)} في اليوم${state.riding === k ? ' · راكبها دلوقتي' : ''}</small>
+          <div class="actions"><button class="btn" type="button" data-act="ext:${k}" ${state.money >= v.rent.daily ? '' : 'disabled'}>مدّ يوم · ${fmt(v.rent.daily)}</button><button class="btn" type="button" data-act="ret:${k}">${showArm === 'ret:' + k ? 'متأكد؟ (مفيش فلوس بترجع)' : 'رجّعها دلوقتي'}</button></div></div>`;
+        return `<div class="hr-row">
           <div class="hr-top"><b><i style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${v.color};vertical-align:middle"></i> ${F.name}</b><span>${vehWhere(v)}</span></div>
           <small class="when">اشتريتها يوم ${v.day} بـ ${fmt(F.price)}${state.riding === k ? ' · راكبها دلوقتي' : ''}</small>
           <div class="actions"><button class="btn" type="button" data-act="sell:${k}" ${state.riding === k ? 'disabled' : ''}>${showArm === 'sell:' + k ? `متأكد؟ بيعها بـ ${fmt(back)}` : `بيعها للمعرض · ${fmt(back)}`}</button></div></div>`; }).join('')
@@ -7693,9 +7706,22 @@ function showroomPanel() {
         <div class="actions"><button class="btn ${ok ? 'pri' : ''}" type="button" data-act="buy:${id}" ${ok ? '' : 'disabled'}>${ok ? (showArm === 'buy:' + id ? `متأكد؟ ادفع ${fmt(F.price)}` : `اشتري · ${fmt(F.price)}`) : `محتاج ${fmt(F.price - state.money)} كمان`}</button></div></div>`;
     }).join('');
     b.innerHTML = `<div class="seg mk-tabs">${tabs.map(([k, t]) => `<button type="button" class="${showTab === k ? 'on' : ''}" data-act="tab:${k}">${t}</button>`).join('')}</div>
-      <p class="note">معاك ${fmt(state.money)} في المحفظة. ${showTab === 'mine' ? 'المعرض بيشتري عربيتك بـ 75% من تمنها.' : 'اختار اللون، والعربية بتستناك مركونة جنب الطريق قدام المعرض.'}</p>${body}`;
+      <p class="note">معاك ${fmt(state.money)} في المحفظة. ${showTab === 'mine' ? 'المعرض بيشتري عربيتك بـ 75% من تمنها.' : showTab === 'rent' ? 'الإيجار من غير سواق: انت اللي بتسوق، أو سلّمها لسواق من مكتب المقاولات.' : 'اختار اللون، والعربية بتستناك مركونة جنب الطريق قدام المعرض.'}</p>${body}`;
     bind(b, {
       tab: k => { showTab = k; showArm = null; rerender(); },
+      rd: d => { rentDays = +d; showArm = null; rerender(); },
+      rent: id => {
+        const F = FLEET[id], d = rentDay(F), tot = d * rentDays;
+        if (showArm !== 'rent:' + id) { showArm = 'rent:' + id; rerender(); return; }
+        if (!Economy.spend(tot, `إيجار ${F.name} ${rentDays} يوم من معرض الصحراوي`)) { toast('الفلوس مش مكفية', 'bad'); return; }
+        const k = 'r' + (state.fleetSeq = (state.fleetSeq || 0) + 1), sp = fleetSpot();
+        state.vehicles[k] = { model: id, color: F.color, ...sp, day: state.day, rent: { end: absNow() + rentDays * 1440, daily: d } };
+        syncVehicles(); showArm = null;
+        toast(`📅 ال${F.name} مستنياك جنب الطريق قدام المعرض · مأجّرة ${rentDays === 1 ? 'يوم' : rentDays + ' أيام'}`, 'good', 5000);
+        updateHUD(); save(); rerender();
+      },
+      ext: k => { const v = state.vehicles[k]; if (!v || !v.rent) return; if (!Economy.spend(v.rent.daily, `مدّ إيجار ${FLEET[v.model].name} يوم`)) return; v.rent.end += 1440; toast('اتمدّ الإيجار يوم', 'good'); updateHUD(); save(); rerender(); },
+      ret: k => { if (showArm !== 'ret:' + k) { showArm = 'ret:' + k; rerender(); return; } showArm = null; returnRental(k); rerender(); },
       col: a => { const [id, c] = a.split('|'); showColor[id] = c; rerender(); },
       buy: id => {
         const F = FLEET[id];
@@ -7708,7 +7734,7 @@ function showroomPanel() {
         updateHUD(); save(); rerender();
       },
       sell: k => {
-        const v = state.vehicles[k]; if (!v || state.riding === k) return;
+        const v = state.vehicles[k]; if (!v || state.riding === k || v.rent) return;
         if (showArm !== 'sell:' + k) { showArm = 'sell:' + k; rerender(); return; }
         const F = FLEET[v.model], back = Math.round(F.price * 0.75 / 1000) * 1000;
         delete state.vehicles[k]; syncVehicles(); Economy.add(back, `بيع ${F.name} لمعرض الصحراوي`);
@@ -7721,7 +7747,7 @@ function fleetHTML() {
   const mine = Object.entries(state.vehicles).filter(([, v]) => v && v.model);
   if (!mine.length && !Object.keys(state.matPending || {}).length) return '<p class="note">ماعندكش عربيات من المعرض لسه. معرض الصحراوي على أول طريق العاصمة بعد البيت.</p>';
   const pend = Object.entries(state.matPending || {}).filter(([, q]) => q > 0.0001);
-  return `<p class="note">عربياتك ومكانها. العربية بتفضل مكان ما ركنتها. (السواقين هييجوا مع نظام المقاولات)</p>` + mine.map(([k, v]) => { const F = FLEET[v.model], cg = Object.entries(v.cargo || {}); return `<div class="hr-row"><div class="hr-top"><b><i style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${v.color};vertical-align:middle"></i> ${F.name}</b><span>${state.riding === k ? 'راكبها' : vehWhere(v)}</span></div><small class="when">${FLEET_CATS[F.cat]} · ${Math.round(F.speed * 3.6)} كم/س${F.cap ? ` · حمولة ${F.cap} ${F.unit || 'طن'}` : ''}${cg.length ? ` · عليها ${fmtQ(cargoWt(v))} طن: ${cg.map(([id, q]) => `${fmtQ(q)} ${MAT_ITEMS[id].unit} ${MAT_ITEMS[id].name}`).join('، ')}` : ''}</small></div>`; }).join('')
+  return `<p class="note">عربياتك ومكانها. العربية بتفضل مكان ما ركنتها. (السواقين هييجوا مع نظام المقاولات)</p>` + mine.map(([k, v]) => { const F = FLEET[v.model], cg = Object.entries(v.cargo || {}); return `<div class="hr-row"><div class="hr-top"><b><i style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${v.color};vertical-align:middle"></i> ${F.name}</b><span>${state.riding === k ? 'راكبها' : vehWhere(v)}</span></div><small class="when">${FLEET_CATS[F.cat]} · ${Math.round(F.speed * 3.6)} كم/س${F.cap ? ` · حمولة ${F.cap} ${F.unit || 'طن'}` : ''}${v.rent ? ` · 📅 مأجّرة · بترجع بعد ${fmtDur(v.rent.end - absNow())}` : ''}${cg.length ? ` · عليها ${fmtQ(cargoWt(v))} طن: ${cg.map(([id, q]) => `${fmtQ(q)} ${MAT_ITEMS[id].unit} ${MAT_ITEMS[id].name}`).join('، ')}` : ''}</small></div>`; }).join('')
     + (pend.length ? `<h3 class="sec">مستني على رصيف التحميل في المول</h3>` + pend.map(([id, q]) => `<div class="hr-row"><div class="hr-top"><b>${MAT_ITEMS[id].name}</b><span>${fmtQ(q)} ${MAT_ITEMS[id].unit}</span></div></div>`).join('') : '');
 }
 
@@ -7809,14 +7835,15 @@ function matTraderPanel(n) {
   const T = MAT_TRADERS[n];
   openPanel(T.title, `${T.owner} · ${T.kind} · أسعار ثابتة`, b => {
     const items = Object.entries(MAT_ITEMS).filter(([, it]) => it.t === T.id), pend = state.matPending || {};
-    b.innerHTML = `<div class="msg">«أهلًا يا هندسة! كله موجود. اللي تشتريه بيستناك على رصيف التحميل قدام بوابة المول الكبيرة، هات عربية نقل وحمّله.»</div>
+    b.innerHTML = `<div class="msg">«أهلًا يا هندسة! كله موجود. اللي تشتريه بيستناك على رصيف التحميل قدام بوابة المول الكبيرة. تحمّله على عربيتك، أو تطلب نقلة توصّله لموقعك (تحت).»</div>
       <p class="note">معاك ${fmt(state.money)} في المحفظة.</p>
       ${items.map(([id, it]) => { const q = matQty[id] ?? 1; return `<div class="hr-row">
         <div class="hr-top"><b>${it.name}</b><span>${fmt(it.price)} / ${it.unit}</span></div>
         <small class="when">وزن ${it.unit}: ${it.wt >= 1 ? fmtQ(it.wt) + ' طن' : Math.round(it.wt * 1000) + ' كجم'} · بتتشال على ${LOAD_TXT[it.load]}${pend[id] ? ` · مستنيك على الرصيف ${fmtQ(pend[id])}` : ''}</small>
         <div class="rule-ctl"><div class="stepper"><button type="button" data-act="q:${id}.-10">−10</button><button type="button" data-act="q:${id}.-1">−</button><span>${fmtQ(q)}</span><button type="button" data-act="q:${id}.1">+</button><button type="button" data-act="q:${id}.10">+10</button><button type="button" data-act="q:${id}.100">+100</button></div>
-          <button class="btn pri" type="button" data-act="buy:${id}" ${state.money >= q * it.price && q > 0 ? '' : 'disabled'}>اشتري · ${fmt(q * it.price)}</button></div></div>`; }).join('')}`;
+          <button class="btn pri" type="button" data-act="buy:${id}" ${state.money >= q * it.price && q > 0 ? '' : 'disabled'}>اشتري · ${fmt(q * it.price)}</button></div></div>`; }).join('')}${haulHTML()}`;
     bind(b, {
+      ...haulActs(),
       q: a => { const [id, d] = a.split('.'); matQty[id] = Math.max(0, (matQty[id] ?? 1) + +d); rerender(); },
       buy: id => {
         const it = MAT_ITEMS[id], q = matQty[id] ?? 1, cost = Math.round(q * it.price);
@@ -7835,8 +7862,8 @@ function matBayPanel() {
     const trucks = bayTrucks(), pend = state.matPending || {}, pendIds = Object.keys(pend).filter(id => pend[id] > 0.0001);
     if (!trucks.includes(bayTruck)) bayTruck = trucks[0] || null;
     const v = bayTruck && state.vehicles[bayTruck], F = v && FLEET[v.model];
-    let h = '';
-    if (!trucks.length) h += `<div class="msg">«هات عربية نقل من عربياتك وأقف بيها هنا على الرصيف، ونحمّلك.»</div>`;
+    let h = haulHTML();
+    if (!trucks.length) h += `<h3 class="sec">أو حمّل على عربيتك</h3><p class="note">لو عندك عربية نقل (ملكك أو مأجّرة من معرض الصحراوي) أقف بيها هنا على الرصيف ونحمّلك.</p>`;
     else {
       h += `<div class="seg">${trucks.map(k => `<button type="button" class="${k === bayTruck ? 'on' : ''}" data-act="tr:${k}">${FLEET[state.vehicles[k].model].name}</button>`).join('')}</div>`;
       const used = cargoWt(v);
@@ -7856,6 +7883,7 @@ function matBayPanel() {
       return q;
     };
     bind(b, {
+      ...haulActs(),
       tr: k => { bayTruck = k; rerender(); },
       load: id => { const q = loadOne(id); toast(q ? `حمّلت ${fmtQ(q)} ${MAT_ITEMS[id].unit} ${MAT_ITEMS[id].name}` : 'العربية مليانة', q ? 'good' : 'bad'); save(); rerender(); },
       all: () => { let n = 0; for (const id of Object.keys(state.matPending || {})) if (canCarry(v.model, id) && loadOne(id)) n++; toast(n ? `حمّلت ${n} أصناف · ${fmtQ(cargoWt(v))} من ${F.cap} طن` : 'مفيش حاجة تنفع العربية دي أو العربية مليانة', n ? 'good' : 'bad'); save(); rerender(); },
@@ -8250,7 +8278,7 @@ function projHTML(p) {
     <small class="when">${p.last || (p.started ? '' : 'البنا لسه مابدأش')}</small>`;
   const miss = stageMissing(p);
   h += `<h3 class="sec">الخامات المطلوبة للمرحلة دي</h3>` + Object.entries(s.need).map(([k, q]) => { const rem = q * (1 - p.prog), a = avail(L.stock, k), ok = a + 1e-6 >= rem; return `<div class="hr-row"><div class="hr-top"><b>${ok ? '✅' : '❌'} ${reqName(k)}</b><span>${fmtQ(rem)} ${reqUnit(k)}</span></div><small class="when">في الموقع ${fmtQ(Math.min(a, 1e9))}${ok ? '' : ` · ناقص ${fmtQ(rem - a)}`}${k === 'conc' ? ' · خرسانة جاهزة أو أسمنت + رمل حرش + زلط تتخلط في الموقع' : ''}</small></div>`; }).join('');
-  if (miss.length) h += `<p class="note">اشتري الناقص من تجار مواد البنا في المول (محلات 17 لـ27) ووصّله بعربية نقل، أو سلّم عربية لسواق ينقل كل يوم.</p><p class="note">📍 التنزيل: روح العاصمة على بلوك ${p.n}، ادخل بالعربية من الفتحة اللي في نص السور ناحية الشارع، وأقف في المربع الأصفر قدام الكونتينر الأزرق ودوس «نزّل».</p>`;
+  if (miss.length) h += `<p class="note">اشتري الناقص من تجار مواد البنا في المول (محلات 17 لـ27). التوصيل: اطلب نقلة من عند التاجر أو من رصيف التحميل (من غير عربيات)، أو أجّر عربية نقل باليوم من معرض الصحراوي، أو بعربيتك.</p><p class="note">📍 التنزيل: روح العاصمة على بلوك ${p.n}، ادخل بالعربية من الفتحة اللي في نص السور ناحية الشارع، وأقف في المربع الأصفر قدام الكونتينر الأزرق ودوس «نزّل».</p>`;
   if (s.need.conc) h += `<div class="rule-ctl"><div class="pair"><span>خرسانة جاهزة</span><div class="stepper"><button type="button" data-act="rq:-10">−10</button><span>${rmcQ} م³</span><button type="button" data-act="rq:10">+10</button><button type="button" data-act="rq:100">+100</button></div></div>
     <button class="btn" type="button" data-act="rmc" ${state.money >= rmcQ * RMC_PRICE && rmcQ > 0 ? '' : 'disabled'}>اطلب · ${fmt(rmcQ * RMC_PRICE)}</button></div><small class="when">${fmt(RMC_PRICE)}/م³ شامل النقل والمضخة · بتوصل الموقع بكرة الصبح${C.rmc.filter(o => o.n === p.n).length ? ` · جاي ${fmtQ(C.rmc.filter(o => o.n === p.n).reduce((a, o) => a + o.q, 0))} م³` : ''}</small>`;
   h += `<h3 class="sec">مين بيشتغل؟</h3><div class="seg"><button type="button" class="${p.mode === 'sub' ? 'on' : ''}" data-act="mode:sub">مقاول باطن بالمصنعية</button><button type="button" class="${p.mode === 'daily' ? 'on' : ''}" data-act="mode:daily">عمالة باليومية</button></div>`;
@@ -9106,6 +9134,70 @@ function cnsPhoneHTML() {
     <div class="hr-row"><div class="hr-top"><b>الميزانية</b><span>${fmt(S.budget)}</span></div><small class="when">الخزنة ${fmt(S.safe)} · مرتبات اليوم ${fmt(cnsWages())}${S.mgrOn ? '' : ' · ⚠️ المحل واقف'}</small></div>
     ${L ? `<div class="hr-row"><div class="hr-top"><b>امبارح (يوم ${L.day})</b><span>${fmt(L.rev)}</span></div><small class="when">ربح ${fmt(L.profit)} · ${L.cust} زبون</small></div>` : ''}
     ${S.erp ? `<h3 class="sec">🖥️ ERP</h3>${cnsIds().map(id => { const a = cnsAvg(id), st = cnsStock(id); return `<div class="hr-row"><div class="hr-top"><b>${CN_PRODUCTS[id].icon} ${CN_PRODUCTS[id].name}</b><span>${st.toLocaleString('en-US')}</span></div><small class="when">${a ? `~${a.toFixed(0)}/يوم · يكفي ${(st / a).toFixed(1)} يوم` : 'لسه مااتباعش'}${cnsTransit(id) ? ` · جاي ${cnsTransit(id)}` : ''}</small></div>`; }).join('')}` : '<p class="note">ركّب الـERP من المحل عشان تشوف المخزن وتطلب أوتوماتيك.</p>'}`;
+}
+
+// ---------- شركة نقل بالنقلة: بتوصّل اللي على رصيف المول لموقعك من غير ما تشتري عربيات ----------
+const HAUL_TRIP = { dump: { name: 'قلاب 20 طن', cap: 20, price: 2800 }, flat: { name: 'تريلا سطحة 40 طن', cap: 40, price: 5500 }, boxt: { name: 'نص نقل 4 طن', cap: 4, price: 1200 } };
+const HAUL_MINS = 180;
+let haulTo = null;
+function haulPlan() {
+  const w = { bulk: 0, long: 0, gen: 0 };
+  for (const [id, q] of Object.entries(state.matPending || {})) if (q > 1e-4) w[MAT_ITEMS[id].load] += q * MAT_ITEMS[id].wt;
+  const m = {}, flatW = w.long + (w.gen > 4 ? w.gen : 0);
+  if (w.bulk > 1e-6) m.dump = Math.ceil(w.bulk / 20 - 1e-9);
+  if (flatW > 1e-6) m.flat = Math.ceil(flatW / 40 - 1e-9);
+  if (w.gen > 1e-6 && w.gen <= 4) m.boxt = 1;
+  const trips = Object.entries(m);
+  return { trips, cost: trips.reduce((a, [k, n]) => a + n * HAUL_TRIP[k].price, 0), tons: w.bulk + w.long + w.gen };
+}
+function haulHTML() {
+  const lands = state.con ? Object.keys(state.con.lands).map(Number) : [], P = haulPlan(), hs = (state.con && state.con.hauls) || [];
+  let h = `<h3 class="sec">🚚 النصر للنقل · توصيل لموقعك</h3>`;
+  if (hs.length) h += hs.map(x => `<p class="note">في الطريق لبلوك ${x.n}: ${fmtQ(x.tons)} طن · توصل بعد ${fmtDur(x.at - absNow())}</p>`).join('');
+  if (!lands.length) return h + '<p class="note">اشتري أرض في العاصمة الأول من مكتب المقاولات (جنب البيت).</p>';
+  if (P.tons <= 1e-6) return h + '<p class="note">مفيش حاجة على الرصيف تتنقل. اللي تشتريه من التجار بيتحط على الرصيف وتقدر تبعته من هنا.</p>';
+  if (!lands.includes(haulTo)) haulTo = lands[0];
+  return h + `<p class="note">مش محتاج تشتري عربيات: شركة النقل بتحمّل كل اللي على الرصيف وتنزّله في الموقع.</p>
+    <div class="chips">${lands.map(n => `<button type="button" class="chip ${haulTo === n ? 'on' : ''}" data-act="hTo:${n}">بلوك ${n}</button>`).join('')}</div>
+    <small class="when">${fmtQ(P.tons)} طن · ${P.trips.map(([k, n]) => `${n} نقلة ${HAUL_TRIP[k].name} (${fmt(HAUL_TRIP[k].price)} للنقلة)`).join(' + ')} · بتوصل بعد 3 ساعات</small>
+    <div class="actions"><button class="btn pri" type="button" data-act="haul" ${state.money >= P.cost ? '' : 'disabled'}>ابعت كل اللي على الرصيف لبلوك ${haulTo} · ${fmt(P.cost)}</button></div>`;
+}
+const haulActs = () => ({
+  hTo: n => { haulTo = +n; rerender(); },
+  haul: () => {
+    const P = haulPlan(); if (P.tons <= 1e-6 || !haulTo) return;
+    if (!Economy.spend(P.cost, `نقل خامات لموقع بلوك ${haulTo}`)) { toast('الفلوس مش مكفية', 'bad'); return; }
+    const C = CON(); (C.hauls = C.hauls || []).push({ n: haulTo, items: { ...state.matPending }, tons: P.tons, at: absNow() + HAUL_MINS }); state.matPending = {};
+    toast(`🚚 العربيات طالعة بـ ${fmtQ(P.tons)} طن على بلوك ${haulTo} · توصل بعد 3 ساعات`, 'good', 5000); updateHUD(); save(); rerender();
+  },
+});
+function conHaulTick() {
+  const C = state.con; if (!C || !C.hauls || !C.hauls.length) return;
+  for (const x of C.hauls.filter(x => absNow() >= x.at)) {
+    C.hauls.splice(C.hauls.indexOf(x), 1); const L = C.lands[x.n]; if (!L) continue;
+    for (const [id, q] of Object.entries(x.items)) L.stock[id] = (L.stock[id] || 0) + q;
+    toast(`🚚 النقلة وصلت موقع بلوك ${x.n}: ${fmtQ(x.tons)} طن اتنزّلت`, 'good', 4500); conRefresh(x.n); save();
+  }
+}
+// ---------- إيجار عربيات ومعدات باليوم من معرض الصحراوي ----------
+const rentDay = F => Math.max(500, Math.round(F.price * 0.0012 / 50) * 50);
+let rentDays = 1;
+function rentTick() {
+  for (const [k, v] of Object.entries(state.vehicles)) if (v && v.rent && absNow() >= v.rent.end) returnRental(k);
+}
+function returnRental(k) {
+  const v = state.vehicles[k]; if (!v) return;
+  const cg = Object.entries(v.cargo || {});
+  if (cg.length) {
+    const b = inCapital(v.x, v.z) ? capBlockAt(v.x, v.z) : null, L = b && state.con && state.con.lands[b.n];
+    if (L) { for (const [id, q] of cg) L.stock[id] = (L.stock[id] || 0) + q; conRefresh(b.n); }
+    else { state.matPending = state.matPending || {}; for (const [id, q] of cg) state.matPending[id] = (state.matPending[id] || 0) + q; }
+    toast(L ? `الحمولة اتنزّلت في موقع بلوك ${b.n} قبل ما العربية ترجع` : 'الحمولة رجعت على رصيف التحميل في المول', '', 4500);
+  }
+  if (state.riding === k) { state.riding = null; rideV = 0; player.lean = 0; }
+  if (state.con && state.con.drivers) delete state.con.drivers[k];
+  const F = FLEET[v.model]; delete state.vehicles[k]; syncVehicles();
+  toast(`📅 مدة إيجار ال${F.name} خلصت ورجعت للمعرض`, '', 5000); save();
 }
 
 // عندك مكان تنام فيه في الصين الليلة دي؟
