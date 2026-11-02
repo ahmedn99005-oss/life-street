@@ -19,3 +19,8 @@
 - `three.min.js` مكتبة الـ3D (Three.js r128، رخصة MIT)
 - `fonts/` خطوط Lalezar و Readex Pro (رخصة SIL OFL)
 - `manifest.webmanifest` و `sw.js` عشان تبقى أبلكيشن وتشتغل أوفلاين
+
+## التحديثات (للمطوّر)
+اللعبة الأصلية ملف واحد (نسخة الآرتيفاكت). عشان تطلع نسخة أبلكيشن جديدة:
+`python3 tools/build_app.py /path/to/index.html` وبعدين commit و push على `main`.
+السكريبت بيعلّي رقم الكاش في `sw.js` عشان الأبلكيشن يتحدّث عند الناس.
