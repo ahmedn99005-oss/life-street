@@ -1,0 +1,21 @@
+{
+  "name": "شارع الحياة",
+  "short_name": "شارع الحياة",
+  "description": "لعبة محاكاة حياة 3D: اشتغل، افتح محلات، استورد من الصين، وابني العاصمة الجديدة.",
+  "lang": "ar",
+  "dir": "rtl",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "any",
+  "background_color": "#121922",
+  "theme_color": "#121922",
+  "categories": ["games", "simulation"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
