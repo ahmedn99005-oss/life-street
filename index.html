@@ -1530,7 +1530,7 @@ function drawWestMini(W, H) {
     if (x1 < 0 || x0 > W || z1 < 0 || z0 > H) continue;
     mctx.fillStyle = 'rgba(255,255,255,.22)'; mctx.fillRect(x0 + 1, z0 + 1, x1 - x0 - 2, z1 - z0 - 2);
     mctx.strokeStyle = '#e67e22'; mctx.lineWidth = 1; mctx.strokeRect(x0 + 1, z0 + 1, x1 - x0 - 2, z1 - z0 - 2);
-    if (state.con && state.con.lands[b.n]) { mctx.fillStyle = 'rgba(30,122,60,.45)'; mctx.fillRect(x0 + 1, z0 + 1, x1 - x0 - 2, z1 - z0 - 2); const pj = state.con.projects[b.n]; if (pj) { mctx.fillStyle = pj.done ? '#ecf0f1' : '#7f8c8d'; for (const R of bldRects(pj)) mctx.fillRect(X(R.x - R.w / 2), Z(R.z - R.d / 2), R.w * k, R.d * k); } }
+    if (state.con && state.con.lands[b.n]) { mctx.fillStyle = 'rgba(30,122,60,.45)'; mctx.fillRect(x0 + 1, z0 + 1, x1 - x0 - 2, z1 - z0 - 2); { const sp = siteSpot(b.n); mctx.fillStyle = '#f4b81c'; mctx.beginPath(); mctx.arc(X(sp.x), Z(sp.z), 3, 0, 7); mctx.fill(); } const pj = state.con.projects[b.n]; if (pj) { mctx.fillStyle = pj.done ? '#ecf0f1' : '#7f8c8d'; for (const R of bldRects(pj)) mctx.fillRect(X(R.x - R.w / 2), Z(R.z - R.d / 2), R.w * k, R.d * k); } }
     mctx.fillStyle = '#5b3a1e'; mctx.fillText(String(b.n), (x0 + x1) / 2, (z0 + z1) / 2);
   }
   mctx.fillStyle = '#c0392b'; mctx.fillRect(X(CAP.x1 + 4) - 1, Z(2.4), 3, 13.2 * k);
@@ -8250,7 +8250,7 @@ function projHTML(p) {
     <small class="when">${p.last || (p.started ? '' : 'البنا لسه مابدأش')}</small>`;
   const miss = stageMissing(p);
   h += `<h3 class="sec">الخامات المطلوبة للمرحلة دي</h3>` + Object.entries(s.need).map(([k, q]) => { const rem = q * (1 - p.prog), a = avail(L.stock, k), ok = a + 1e-6 >= rem; return `<div class="hr-row"><div class="hr-top"><b>${ok ? '✅' : '❌'} ${reqName(k)}</b><span>${fmtQ(rem)} ${reqUnit(k)}</span></div><small class="when">في الموقع ${fmtQ(Math.min(a, 1e9))}${ok ? '' : ` · ناقص ${fmtQ(rem - a)}`}${k === 'conc' ? ' · خرسانة جاهزة أو أسمنت + رمل حرش + زلط تتخلط في الموقع' : ''}</small></div>`; }).join('');
-  if (miss.length) h += `<p class="note">اشتري الناقص من تجار مواد البنا في المول (محلات 17 لـ27) ووصّله بعربية نقل، أو سلّم عربية لسواق ينقل كل يوم.</p>`;
+  if (miss.length) h += `<p class="note">اشتري الناقص من تجار مواد البنا في المول (محلات 17 لـ27) ووصّله بعربية نقل، أو سلّم عربية لسواق ينقل كل يوم.</p><p class="note">📍 التنزيل: روح العاصمة على بلوك ${p.n}، ادخل بالعربية من الفتحة اللي في نص السور ناحية الشارع، وأقف في المربع الأصفر قدام الكونتينر الأزرق ودوس «نزّل».</p>`;
   if (s.need.conc) h += `<div class="rule-ctl"><div class="pair"><span>خرسانة جاهزة</span><div class="stepper"><button type="button" data-act="rq:-10">−10</button><span>${rmcQ} م³</span><button type="button" data-act="rq:10">+10</button><button type="button" data-act="rq:100">+100</button></div></div>
     <button class="btn" type="button" data-act="rmc" ${state.money >= rmcQ * RMC_PRICE && rmcQ > 0 ? '' : 'disabled'}>اطلب · ${fmt(rmcQ * RMC_PRICE)}</button></div><small class="when">${fmt(RMC_PRICE)}/م³ شامل النقل والمضخة · بتوصل الموقع بكرة الصبح${C.rmc.filter(o => o.n === p.n).length ? ` · جاي ${fmtQ(C.rmc.filter(o => o.n === p.n).reduce((a, o) => a + o.q, 0))} م³` : ''}</small>`;
   h += `<h3 class="sec">مين بيشتغل؟</h3><div class="seg"><button type="button" class="${p.mode === 'sub' ? 'on' : ''}" data-act="mode:sub">مقاول باطن بالمصنعية</button><button type="button" class="${p.mode === 'daily' ? 'on' : ''}" data-act="mode:daily">عمالة باليومية</button></div>`;
@@ -8316,7 +8316,9 @@ function siteSpot(n) { const b = blk(n), f = blkFront(b), fz = f > 0 ? b.z1 : b.
 function nearSite() {
   if (!inCapital()) return null;
   const b = capBlockAt(); if (!b || !state.con || !state.con.lands[b.n]) return null;
-  const s = siteSpot(b.n), p = state.player;
+  const s = siteSpot(b.n), p = state.player, v = state.riding && state.vehicles[state.riding];
+  // راكب عربية عليها حمولة: تنزّل في أي حتة جوه أرضك
+  if (v && v.model && Object.keys(v.cargo || {}).length) return { type: 'site', id: 'siteU' + b.n, n: b.n, verb: `تنزّل الحمولة في موقع بلوك ${b.n}`, act: 'نزّل' };
   return Math.hypot(p.x - s.x, p.z - s.z) < (state.riding ? 9 : 4.5) ? { type: 'site', id: 'site' + b.n, n: b.n, verb: `تفتح موقع بلوك ${b.n}`, act: 'الموقع' } : null;
 }
 function sitePanel(n) {
@@ -8382,6 +8384,12 @@ function conRefresh(n) {
   const s = siteSpot(n);
   P.push(pB(6, 2.6, 2.4, s.x + 2.2, 1.3, s.z - f * 1.6, '#1f5fa8'), pB(1, 2, 0.06, s.x + 0.6, 1, s.z - f * 0.38, '#f1ece0'), pB(1.4, 0.9, 0.06, s.x + 3.2, 1.6, s.z - f * 0.38, '#9fc6e8'));
   solid(s.x - 0.8, s.x + 5.2, s.z - f * 0.4, s.z - f * 2.8);
+  // مربع التنزيل الأصفر قدام الكونتينر + يافطة
+  { const za = fz - f * 1.0, zb2 = fz - f * 4.3, xa = s.x - 5, xb = s.x + 5.5, zm = (za + zb2) / 2, dz = Math.abs(za - zb2);
+    P.push(pB(xb - xa, 0.03, 0.2, (xa + xb) / 2, 0.02, za, '#f4b81c'), pB(xb - xa, 0.03, 0.2, (xa + xb) / 2, 0.02, zb2, '#f4b81c'), pB(0.2, 0.03, dz, xa, 0.02, zm, '#f4b81c'), pB(0.2, 0.03, dz, xb, 0.02, zm, '#f4b81c'));
+    const sg = textPlane(2.8, 1.0, 560, 200, label('#f4b81c', '#2a1f00', [['📦 نزّل الخامات هنا', 60, .42], ['ادخل بالعربية وأقف في المربع', 38, .8]]));
+    sg.rotation.y = f > 0 ? 0 : Math.PI; sg.position.set(xa - 0.8, 2.3, fz - f * 0.75); g.add(sg);
+    P.push(pB(0.12, 2.3, 0.12, xa - 0.8, 1.15, fz - f * 0.8, '#555')); }
   // الخامات المتشونة في الموقع: شمال البوابة ويمينها لحد الكونتينر، والممر قدام البوابة فاضي
   const p = C.projects[n], cz0 = (b.z0 + b.z1) / 2;
   const frontEdge = p ? Math.max(...bldRects(p).map(R => f * (R.z - cz0) + R.d / 2)) : 12, D = clamp(25 - frontEdge - 1.2, 6, 18), Zd = t => fz - f * (0.6 + t * D);
