@@ -1,5 +1,5 @@
 // شارع الحياة: بيخزّن ملفات اللعبة عشان تشتغل من غير نت
-const VERSION = 'life-street-v78';
+const VERSION = 'life-street-v79';
 const FILES = ["./", "index.html", "three.min.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "fonts/f00.woff2", "fonts/f01.woff2", "fonts/f02.woff2", "fonts/f03.woff2", "fonts/f04.woff2", "fonts/f05.woff2", "fonts/f06.woff2", "fonts/f07.woff2", "fonts/fonts.css"];
 self.addEventListener('install', e => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== VERSION).map(k => caches.delete(k)))).then(() => self.clients.claim())); });

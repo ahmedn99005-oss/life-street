@@ -301,6 +301,12 @@ body.touch .prompt { bottom: calc(112px + env(safe-area-inset-bottom, 0px)); }
 .ph-screen { min-height: 420px; border-radius: 20px; overflow: hidden; background: linear-gradient(160deg, #1d3b55, #2f5d50); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
 .ph-homebar { width: 110px; height: 4px; border-radius: 4px; background: #57606a; margin: 2px auto 0; }
 .ph-home { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; align-content: start; }
+.chat { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 10px; }
+.bub { max-width: 82%; padding: 7px 11px; border-radius: 14px; font-size: 14px; line-height: 1.5; }
+.bub small { display: block; font-size: 10px; opacity: .6; margin-top: 2px; }
+.bub.her { align-self: flex-end; background: #2c3a47; color: #f1ece0; border-bottom-right-radius: 4px; }
+.bub.me { align-self: flex-start; background: #1e7a3c; color: #fff; border-bottom-left-radius: 4px; }
+.big.on { outline: 2px solid var(--taxi); }
 .ph-app { display: flex; flex-direction: column; align-items: center; gap: 4px; background: transparent; border: 0; color: #f1ece0; font-size: 12px; padding: 4px 0; }
 .ph-app span { width: 54px; height: 54px; border-radius: 14px; display: grid; place-items: center; font-size: 28px; background: var(--taxi); box-shadow: 0 4px 10px rgba(0,0,0,.3); }
 .ph-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #f1ece0; }
@@ -586,7 +592,7 @@ const RATES = {
 const NEED_WARN = { food: 'إنت جعان! كُل حاجة', drink: 'إنت عطشان! اشرب حاجة', energy: 'إنت تعبان، محتاج تنام' };
 
 // آخر اليوم (لسه بنفس رقم اليوم) وبداية اليوم الجديد
-function endOfDay() { staffNewDay(); mgrPay(); collectRent(); mkEndDay(); tradeEndDay(); loanNewDay(); conEndDay(); cnsEndDay(); closeDay(); }
+function endOfDay() { staffNewDay(); mgrPay(); collectRent(); mkEndDay(); tradeEndDay(); loanNewDay(); conEndDay(); cnsEndDay(); lifeDay(); closeDay(); }
 function startOfDay() { applyInterest(); priceNewDay(); seasonNewDay(); fxNewDay(); book(); conStartDay(); }
 // الوقت اللي بيعدّي مرة واحدة (نوم، طبخ، جيم...) المحل بيكمّل فيه شغل: بنحسبه حساب بدل ما يقف
 let liveTick = false;
@@ -598,6 +604,7 @@ function advanceTime(mins, mode = 'awake') {
 function advanceCore(mins, mode = 'awake') {
   mkAdvance(mins);
   cnsAdvance(mins);
+  lifeTick(mins);
   conHaulTick();
   rentTick();
   investTick();
@@ -666,9 +673,10 @@ function westCollide(p, nx, nz) {
     // من جوه العاصمة ماتطلعش للطريق غير من البوابة
     if (p.x <= CAP.x1 && (p.z < HWY.z0 || p.z > HWY.z1)) { nx = CAP.x1; hit = true; }
     else {
-      const lotX = nx > SHOW.x0 + 0.5 && nx < SHOW.x1 - 0.5;
-      if (p.z > HWY.z1 && !lotX) { nx = clamp(nx, SHOW.x0 + 0.5, SHOW.x1 - 0.5); hit = true; }   // من الساحة لبرا من قدام بس
-      const z = clamp(nz, HWY.z0, nx > SHOW.x0 + 0.5 && nx < SHOW.x1 - 0.5 ? SHOW.z1 - 0.5 : HWY.z1); if (z !== nz) { nz = z; hit = true; }
+      const inLot = (x, L) => x > L.x0 + 0.5 && x < L.x1 - 0.5, lotOf = x => inLot(x, SHOW) ? SHOW : inLot(x, GPARK) ? GPARK : null;
+      if (p.z > HWY.z1) { const L0 = lotOf(p.x) || SHOW; if (!inLot(nx, L0)) { nx = clamp(nx, L0.x0 + 0.5, L0.x1 - 0.5); hit = true; } }   // من الساحة أو الحديقة لبرا من قدام بس
+      const L1 = lotOf(nx), z = clamp(nz, HWY.z0, L1 ? L1.z1 - 0.5 : HWY.z1); if (z !== nz) { nz = z; hit = true; }
+      { const fx = (GPARK.x0 + GPARK.x1) / 2, fz = (GPARK.z0 + GPARK.z1) / 2, dd = Math.hypot(nx - fx, nz - fz); if (dd < 3.4) { nx = fx + (nx - fx) / (dd || 1) * 3.4; nz = fz + (nz - fz) / (dd || 1) * 3.4; hit = true; } }   // النافورة
       const pr = 0.35 + (state.riding && isFleet(state.riding) ? fleetDims(state.vehicles[state.riding].model).W / 2 - 0.3 : 0);
       for (const w of SHOW_WALLS) if (nx > w.x0 - pr && nx < w.x1 + pr && nz > w.z0 - pr && nz < w.z1 + pr) {
         const pl = nx - (w.x0 - pr), prr = (w.x1 + pr) - nx, pf = nz - (w.z0 - pr), pb = (w.z1 + pr) - nz, m = Math.min(pl, prr, pf, pb);
@@ -775,7 +783,7 @@ function initThree() {
   }
   buildRanda();
   buildBankInterior(); buildHomeInterior(); buildSeller(); syncVehicles(); buildDelivery(); buildMall(); buildWholesale(); buildMkSellers(); buildTransport(); buildAdVisual(); syncStaff();
-  buildCitySign(); buildCapital(); buildShowroom(); buildMatTraders(); conRefreshAll(); if (state.cns) cnsBuild3D();
+  buildCitySign(); buildCapital(); buildShowroom(); buildMatTraders(); conRefreshAll(); if (state.cns) cnsBuild3D(); buildLifePlaces(); lifeHomeRefresh();
   if (state.city === 'china') buildChina();
   if (state.inside && state.inside.startsWith('cn:')) { buildCnInteriors(); if (cn().tower) setLbl(cnIn.lobbyLbl, TOWERS[cn().tower].name, '#2c3a47', '#f4b81c', 60); }
   applySettings();
@@ -1078,76 +1086,126 @@ function buildBench(b) {
 
 // شكل الناس: أطراف مدوّرة، وش بعينين وحواجب، إيدين وجزم، وتسريحات مختلفة (وطرحة/فستان للستات)
 let PG = null;
+// أشكال جسم ناعمة (lathe) بدل المكعبات: جذع وحوض ودراعات ورجلين بعضلات، ركب وكوع، ووش فيه تفاصيل
 function personGeos() {
   if (PG) return PG;
-  const t = (geo, y) => { geo.translate(0, y, 0); return geo; };
+  const V2 = (x, y) => new THREE.Vector2(x, y);
+  const lathe = (pts, seg = 14) => new THREE.LatheGeometry(pts.slice().sort((p1, p2) => p1[1] - p2[1]).map(([r, y]) => V2(r, y)), seg);   // النقط لازم من تحت لفوق عشان الوش يبقى برا
+  const sph = (r, ws = 14, hs = 10, a, b, c, d) => new THREE.SphereGeometry(r, ws, hs, a, b, c, d);
   PG = {
-    thigh: t(new THREE.CylinderGeometry(0.095, 0.075, 0.82, 10), -0.41),
-    shoe: new THREE.BoxGeometry(0.15, 0.09, 0.27),
-    sleeve: t(new THREE.CylinderGeometry(0.068, 0.055, 0.56, 8), -0.28),
-    hand: new THREE.SphereGeometry(0.058, 8, 6),
-    torso: new THREE.CylinderGeometry(0.23, 0.19, 0.62, 12),
-    shoulder: new THREE.SphereGeometry(0.1, 10, 8),
-    hips: new THREE.CylinderGeometry(0.2, 0.2, 0.14, 12),
-    neck: new THREE.CylinderGeometry(0.055, 0.06, 0.1, 8),
-    head: new THREE.SphereGeometry(0.135, 16, 12),
-    eye: new THREE.SphereGeometry(0.017, 6, 4),
-    brow: new THREE.BoxGeometry(0.05, 0.012, 0.012),
-    nose: new THREE.ConeGeometry(0.02, 0.05, 6),
-    ear: new THREE.SphereGeometry(0.03, 6, 4),
-    hairShort: new THREE.SphereGeometry(0.145, 14, 8, 0, Math.PI * 2, 0, Math.PI * 0.48),
-    hairLong: new THREE.CylinderGeometry(0.15, 0.17, 0.3, 14, 1, true, Math.PI * 0.25, Math.PI * 1.5),
-    scarfTop: new THREE.SphereGeometry(0.165, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.3),
-    scarf: new THREE.SphereGeometry(0.165, 16, 12, Math.PI / 2 + 0.85, Math.PI * 2 - 1.7, Math.PI * 0.25, Math.PI * 0.5),
-    scarfNeck: new THREE.CylinderGeometry(0.15, 0.24, 0.24, 14),
-    skirt: new THREE.CylinderGeometry(0.21, 0.33, 0.72, 14, 1, true),
-    collar: new THREE.TorusGeometry(0.075, 0.018, 6, 12),
+    // من الورك لتحت (y سالب)
+    thigh: lathe([[0.001, 0.02], [0.088, 0.0], [0.092, -0.08], [0.083, -0.25], [0.066, -0.42], [0.06, -0.46], [0.001, -0.47]]),
+    shin: lathe([[0.001, 0.02], [0.058, 0.0], [0.064, -0.1], [0.058, -0.22], [0.044, -0.36], [0.04, -0.41], [0.001, -0.42]]),
+    shoe: sph(0.06, 12, 8), sole: new THREE.BoxGeometry(0.11, 0.025, 0.27),
+    pelvis: lathe([[0.001, -0.02], [0.15, 0.0], [0.172, 0.07], [0.16, 0.15], [0.145, 0.19], [0.001, 0.2]], 16),
+    pelvisF: lathe([[0.001, -0.02], [0.16, 0.0], [0.19, 0.07], [0.165, 0.15], [0.13, 0.2], [0.001, 0.21]], 16),
+    torso: lathe([[0.001, 0.0], [0.145, 0.0], [0.152, 0.1], [0.175, 0.24], [0.19, 0.34], [0.188, 0.4], [0.16, 0.45], [0.09, 0.49], [0.001, 0.5]], 18),
+    torsoF: lathe([[0.001, 0.0], [0.13, 0.0], [0.128, 0.08], [0.15, 0.18], [0.172, 0.27], [0.168, 0.34], [0.158, 0.4], [0.14, 0.44], [0.08, 0.48], [0.001, 0.49]], 18),
+    shoulder: sph(0.072, 12, 8),
+    upper: lathe([[0.001, 0.03], [0.05, 0.02], [0.055, -0.05], [0.05, -0.18], [0.043, -0.29], [0.001, -0.31]], 10),
+    fore: lathe([[0.001, 0.02], [0.043, 0.0], [0.045, -0.06], [0.037, -0.2], [0.032, -0.25], [0.001, -0.26]], 10),
+    hand: sph(0.04, 10, 8), thumb: sph(0.016, 6, 5),
+    neck: new THREE.CylinderGeometry(0.046, 0.052, 0.11, 12),
+    skull: sph(0.105, 20, 16), jaw: sph(0.085, 16, 12),
+    ear: sph(0.022, 8, 6), eyeW: sph(0.0165, 10, 8), iris: sph(0.0095, 8, 6),
+    brow: new THREE.BoxGeometry(0.042, 0.008, 0.012), lips: sph(0.022, 10, 6),
+    nose: lathe([[0.001, 0.0], [0.016, 0.008], [0.012, 0.035], [0.001, 0.045]], 8),
+    hairCap: sph(0.113, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.5),
+    hairBack: sph(0.114, 18, 12, Math.PI * 0.95, Math.PI * 1.1, Math.PI * 0.25, Math.PI * 0.5),
+    beard: sph(0.09, 16, 10, 0, Math.PI * 2, Math.PI * 0.45, Math.PI * 0.5),
+    longHair: lathe([[0.001, 0.0], [0.1, 0.0], [0.115, -0.08], [0.12, -0.2], [0.105, -0.3], [0.001, -0.31]], 14),
+    bun: sph(0.05, 10, 8),
+    hijab: sph(0.13, 20, 16, Math.PI / 2 + 0.78, Math.PI * 2 - 1.56, 0, Math.PI * 0.86),
+    khimar: lathe([[0.001, 0.12], [0.1, 0.1], [0.14, 0.02], [0.2, -0.1], [0.21, -0.16], [0.001, -0.17]], 18),
+    skirt: lathe([[0.001, 0.0], [0.15, 0.0], [0.19, -0.2], [0.24, -0.5], [0.28, -0.8], [0.001, -0.81]], 18),
+    collar: new THREE.TorusGeometry(0.07, 0.016, 6, 14),
+    belt: new THREE.CylinderGeometry(0.153, 0.153, 0.04, 16),
+    tie: new THREE.BoxGeometry(0.04, 0.26, 0.012),
+    lapel: new THREE.BoxGeometry(0.06, 0.3, 0.02),
+    btn: sph(0.008, 6, 4),
   };
   return PG;
 }
 const darker = (c, k) => { const col = new THREE.Color(c); col.multiplyScalar(k); return '#' + col.getHexString(); };
+// بيجمّع أجزاء كل حتة من الجسم في رسمة واحدة (عشان الموبايل)
+function partList() {
+  const L = [];
+  L.add = (geo, c, x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1, rx = 0, ry = 0, rz = 0) => {
+    const g = geo.clone(); if (sx !== 1 || sy !== 1 || sz !== 1) g.scale(sx, sy, sz); if (rx) g.rotateX(rx); if (ry) g.rotateY(ry); if (rz) g.rotateZ(rz); g.translate(x, y, z); L.push({ g, c }); return L;
+  };
+  return L;
+}
 function makePerson(o) {
   const G = personGeos(), g = new THREE.Group(), body = new THREE.Group(); g.add(body);
-  const part = (geo, mat, x, y, z, parent = body) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; parent.add(m); return m; };
-  const skin = M(o.skin), shirt = M(o.shirt), pants = M(o.pants), shoeM = M(o.shoe || pick(['#1b1b1b', '#3b2a1c', '#5a4632', '#ececec']));
-  const fem = !!o.scarf, dress = fem && (o.dress ?? Math.random() < 0.55);
-  // رجلين: كل رجل جروب بيلف من الوسط
-  const leg = x => { const L = new THREE.Group(); L.position.set(x, 0.88, 0); body.add(L); part(G.thigh, dress ? M(darker(o.shirt, 0.8)) : pants, 0, 0, 0, L); part(G.shoe, shoeM, 0, -0.82, 0.04, L); return L; };
-  const lL = leg(-0.1), lR = leg(0.1);
-  part(G.hips, dress ? shirt : pants, 0, 0.9, 0).scale.z = 0.7;
-  const torso = part(G.torso, shirt, 0, 1.22, 0); torso.scale.z = 0.62;
-  if (dress) { const sk = part(G.skirt, shirt, 0, 0.62, 0); sk.scale.z = 0.75; sk.material = new THREE.MeshLambertMaterial({ color: o.shirt, side: THREE.DoubleSide }); }
-  for (const x of [-0.24, 0.24]) part(G.shoulder, shirt, x, 1.47, 0).scale.set(1, 0.8, 0.9);
-  // دراعين بإيدين
-  const arm = x => { const A = new THREE.Group(); A.position.set(x, 1.48, 0); body.add(A); part(G.sleeve, shirt, 0, 0, 0, A); part(G.hand, skin, 0, -0.6, 0, A); return A; };
-  const aL = arm(-0.29), aR = arm(0.29);
-  part(G.neck, skin, 0, 1.56, 0);
-  if (!fem && Math.random() < 0.5) { const c = part(G.collar, M('#f4f4f2'), 0, 1.52, 0.01); c.rotation.x = Math.PI / 2; c.scale.set(1.3, 1, 1); }
+  const fem = o.fem ?? !!o.scarf, hijab = !!o.scarf, dress = fem && (o.dress ?? (hijab ? Math.random() < 0.55 : Math.random() < 0.35));
+  const skin = o.skin, shirt = o.shirt, pants = o.pants || '#2c3e50', shoe = o.shoe || pick(['#1b1b1b', '#3b2a1c', '#5a4632', '#ececec']), hair = o.hair || '#2b1b10';
+  const jacket = !fem && (o.jacket ?? Math.random() < 0.18), shortSleeve = !fem && !jacket && Math.random() < 0.4;
+  const mesh = (parts, parent, x = 0, y = 0, z = 0) => { const m = mergeGeos(parts); m.position.set(x, y, z); parent.add(m); return m; };
+  // الرجلين: ورك ← ركبة ← رجل وجزمة
+  const legC = dress ? darker(shirt, 0.75) : pants;
+  const leg = x => {
+    const Lg = new THREE.Group(); Lg.position.set(x, 0.92, 0); body.add(Lg);
+    const th = mesh(partList().add(G.thigh, legC), Lg);
+    const K = new THREE.Group(); K.position.set(0, -0.45, 0); Lg.add(K);
+    mesh(partList().add(G.shin, legC).add(G.shoe, shoe, 0, -0.43, 0.045, 1, 0.75, 2.1).add(G.sole, darker(shoe, 0.6), 0, -0.455, 0.045), K);
+    th.onBeforeRender = () => { K.rotation.x = Math.max(0, Lg.rotation.x) * 1.4 + 0.04; };   // الركبة بتتني والرجل ورا
+    return Lg;
+  };
+  const lL = leg(-0.095), lR = leg(0.095);
+  // الجذع
+  const T = partList();
+  T.add(fem ? G.pelvisF : G.pelvis, dress ? shirt : pants, 0, 0.84, 0, 1, 1, 0.72);
+  T.add(fem ? G.torsoF : G.torso, jacket ? o.jacketC || '#2c3a47' : shirt, 0, 1.0, 0, 1, 1, 0.62);
+  if (!fem && !dress) T.add(G.belt, '#2b1d14', 0, 1.0, 0, 1, 1, 0.66);
+  if (dress) T.add(G.skirt, shirt, 0, 1.02, 0, 1, 1, 0.78);
+  const shW = fem ? 0.18 : 0.205;
+  for (const s of [-1, 1]) T.add(G.shoulder, jacket ? o.jacketC || '#2c3a47' : shirt, s * shW, 1.42, 0, 1, 0.85, 0.95);
+  T.add(G.neck, skin, 0, 1.53, 0.005);
+  if (jacket) { T.add(G.collar, '#f4f4f2', 0, 1.5, 0.012, 1.25, 1, 1, Math.PI / 2); for (const s of [-1, 1]) T.add(G.lapel, darker(o.jacketC || '#2c3a47', 0.8), s * 0.05, 1.34, 0.105, 1, 1, 1, 0, 0, s * 0.25); T.add(G.tie, pick(['#8e1b1b', '#1f3a5f', '#2c3e50']), 0, 1.36, 0.112); }
+  else if (!fem) { if (Math.random() < 0.5) T.add(G.collar, darker(shirt, 1.15), 0, 1.5, 0.012, 1.25, 1, 1, Math.PI / 2); for (let k = 0; k < 4; k++) T.add(G.btn, darker(shirt, 0.7), 0, 1.42 - k * 0.09, 0.114 - k * 0.002); }
+  mesh(T, body);
+  // الدراعات: كتف ← كوع ← إيد
+  const sleeveC = jacket ? o.jacketC || '#2c3a47' : shirt;
+  const arm = s => {
+    const A = new THREE.Group(); A.position.set(s * (shW + 0.02), 1.43, 0); A.rotation.z = s * 0.05; body.add(A);
+    const up = mesh(partList().add(G.upper, sleeveC), A);
+    const E = new THREE.Group(); E.position.set(0, -0.3, 0); A.add(E);
+    mesh(partList().add(G.fore, shortSleeve ? skin : sleeveC).add(G.hand, skin, 0, -0.29, 0.005, 0.85, 1.6, 0.6).add(G.thumb, skin, s * -0.03, -0.27, 0.025, 1, 1.6, 1), E);
+    up.onBeforeRender = () => { E.rotation.x = -0.18 - Math.max(0, -A.rotation.x) * 0.6; };   // الكوع بيتني لقدام
+    return A;
+  };
+  const aL = arm(-1), aR = arm(1);
   // الراس والوش
-  const head = part(G.head, skin, 0, 1.71, 0); head.scale.set(0.95, 1.1, 1);
-  const eyeM = M('#1b1410'), browM = M(fem ? '#3a2a1c' : o.hair);
-  for (const x of [-0.047, 0.047]) {
-    part(G.eye, eyeM, x, 1.725, 0.122);
-    part(G.brow, browM, x, 1.765, 0.124).rotation.z = x > 0 ? -0.12 : 0.12;
-    if (!fem) part(G.ear, skin, x * 2.85, 1.71, 0);
+  const H = partList(), lipC = fem ? '#b5525a' : darker(skin, 0.82);
+  H.add(G.skull, skin, 0, 0.13, 0, 0.9, 1.08, 1.0).add(G.jaw, skin, 0, 0.07, 0.02, fem ? 0.78 : 0.86, 0.75, 0.9);
+  for (const s of [-1, 1]) {
+    H.add(G.eyeW, '#f4f1ea', s * 0.036, 0.135, 0.084).add(G.iris, o.eyes || '#3b2414', s * 0.036, 0.135, 0.097);
+    H.add(G.brow, fem ? '#3a2a1c' : hair, s * 0.037, 0.163, 0.093, 1, 1, 1, 0, 0, s * -0.12);
+    if (!hijab) H.add(G.ear, skin, s * 0.094, 0.125, 0, 0.6, 1.3, 0.9);
   }
-  const nose = part(G.nose, M(darker(o.skin, 0.92)), 0, 1.695, 0.135); nose.rotation.x = Math.PI / 2;
-  if (fem) {
-    const scM = new THREE.MeshLambertMaterial({ color: o.shirt, side: THREE.DoubleSide });
-    part(G.scarfTop, scM, 0, 1.72, -0.005).scale.set(1, 1.05, 1.05);
-    part(G.scarf, scM, 0, 1.7, -0.01).scale.set(1, 1.15, 1.05);
-    part(G.scarfNeck, shirt, 0, 1.52, -0.01).scale.z = 0.8;
+  H.add(G.nose, darker(skin, 0.94), 0, 0.112, 0.094, 1, 1, 1, Math.PI / 2);
+  H.add(G.lips, lipC, 0, 0.068, 0.088, 1.15, 0.32, 0.5);
+  if (hijab) { const hc = o.scarfC || shirt; H.add(G.hijab, hc, 0, 0.125, -0.004, 0.95, 1.1, 1.04).add(G.khimar, hc, 0, 0.0, -0.01, 1, 1, 0.82); }
+  else if (fem) {
+    const st = o.hairStyle || pick(['long', 'long', 'pony', 'bun']);
+    H.add(G.hairCap, hair, 0, 0.15, -0.006, 0.97, 1.05, 1.04).add(G.hairBack, hair, 0, 0.12, -0.012, 1.0, 1.05, 1.05);
+    if (st === 'long') H.add(G.longHair, hair, 0, 0.1, -0.045, 1, 1, 0.7);
+    if (st === 'pony') H.add(G.bun, hair, 0, 0.12, -0.115, 0.8, 1.6, 0.8);
+    if (st === 'bun') H.add(G.bun, hair, 0, 0.22, -0.075);
   } else {
-    const style = o.style ?? (o.hair === '#888' ? 'bald' : pick(['short', 'short', 'short', 'beard', 'cap']));
-    if (style !== 'bald') part(G.hairShort, M(o.hair), 0, 1.735, -0.01);
-    else part(G.hairShort, M(o.hair), 0, 1.69, -0.02).scale.set(1.02, 0.6, 1.02);
-    if (style === 'beard') { const bd = part(G.hairShort, M(o.hair), 0, 1.66, 0.01); bd.rotation.x = Math.PI; bd.scale.set(0.95, 0.55, 0.95); }
-    if (style === 'cap') { const cp = part(G.hairShort, M(pick(['#c0392b', '#1f3a5f', '#222', '#f4f4f2'])), 0, 1.75, 0); cp.scale.set(1.04, 0.9, 1.04); part(new THREE.BoxGeometry(0.2, 0.02, 0.12), cp.material, 0, 1.765, 0.15); }
+    const style = o.style ?? (hair === '#888' ? 'bald' : pick(['short', 'short', 'short', 'beard', 'beard', 'cap', 'mustache']));
+    if (style !== 'bald') H.add(G.hairCap, hair, 0, 0.152, -0.008, 0.97, style === 'cap' ? 1.0 : 0.95, 1.03).add(G.hairBack, hair, 0, 0.12, -0.01, 1.0, 1.0, 1.02);
+    else H.add(G.hairCap, hair, 0, 0.11, -0.02, 1.0, 0.55, 1.02);
+    if (style === 'beard') H.add(G.beard, hair, 0, 0.088, 0.016, 0.98, 0.82, 1.0);
+    if (style === 'beard' || style === 'mustache') H.add(G.brow, hair, 0, 0.083, 0.094, 1.3, 1.3, 1);
+    if (style === 'cap') { const cc = pick(['#c0392b', '#1f3a5f', '#222', '#f4f4f2']); H.add(G.hairCap, cc, 0, 0.165, 0, 1.03, 0.92, 1.05).add(new THREE.BoxGeometry(0.2, 0.014, 0.11), cc, 0, 0.175, 0.13); }
   }
-  // طول وعرض مختلف شوية لكل واحد
-  const hs = o.height ?? rand(0.92, 1.07), ws = rand(0.92, 1.1);
+  const head = mesh(H, body, 0, 1.56, 0);
+  // طول وجسم مختلف لكل واحد (والعيال أقصر وراسهم أكبر نسبيًا)
+  const hs = o.height ?? (fem ? rand(0.9, 1.0) : rand(0.94, 1.07)), ws = o.width ?? rand(0.92, 1.1);
   body.scale.set(ws, hs, ws);
-  g.userData = { lL, lR, aL, aR };
+  if (o.kid) { const k = o.kid; body.scale.set(k * 0.95, k, k * 0.95); head.scale.setScalar(1 + (1 - k) * 0.6); head.position.y = 1.56 - (1 - k) * 0.05; }
+  g.userData = { lL, lR, aL, aR, head };
   return g;
 }
 function makeCar(color) {
@@ -1444,6 +1502,7 @@ function updateWorld(dt) {
   updateRanda(dt);
   conAnimate(dt);
   cnsAnimate(dt);
+  lifeAnimate(dt);
   updateVehicles(dt);
   updateDelivery(dt);
   updateStaff(dt);
@@ -1537,6 +1596,7 @@ function drawWestMini(W, H) {
   }
   mctx.fillStyle = '#c0392b'; mctx.fillRect(X(CAP.x1 + 4) - 1, Z(2.4), 3, 13.2 * k);
   mctx.fillStyle = '#7f8c8d'; mctx.fillRect(X(SHOW.x0), Z(SHOW.z0), (SHOW.x1 - SHOW.x0) * k, (SHOW.z1 - SHOW.z0) * k);
+  mctx.fillStyle = '#5c8d3e'; mctx.fillRect(X(GPARK.x0), Z(GPARK.z0), (GPARK.x1 - GPARK.x0) * k, (GPARK.z1 - GPARK.z0) * k);
   for (const k2 of Object.keys(state.vehicles)) { const v = state.vehicles[k2]; if (!v || k2 === state.riding) continue; mctx.fillStyle = '#4fa8e0'; mctx.beginPath(); mctx.arc(X(v.x), Z(v.z), 2.5, 0, 7); mctx.fill(); }
   const ang = Math.atan2(-Math.cos(p.yaw) * k, -Math.sin(p.yaw) * k);
   mctx.save(); mctx.translate(W / 2, H / 2); mctx.rotate(ang);
@@ -1594,6 +1654,7 @@ function updateHUD() {
   $('#hTime').textContent = clockText();
   $('#hDay').textContent = `${inChina() ? '🇨🇳 الصين' : inCapital() ? (capBlockAt() ? `🏜️ العاصمة · بلوك ${capBlockAt().n}${state.con && state.con.lands[capBlockAt().n] ? ' (ملكك)' : ''}` : '🏜️ العاصمة الجديدة') : inWest() ? '🛣️ طريق العاصمة' : 'وايلد سيتي'} · اليوم ${state.day} · ${season().icon}`;
   $('#hMoney').textContent = inChina() ? fmtY(state.cny || 0) : fmt(state.money);
+  { const n = lifeUnread(), bp = $('#bPhone'); if (bp) bp.textContent = n ? `📱 الموبايل (${n})` : '📱 الموبايل'; }
   for (const [id, k] of [['nFood', 'food'], ['nDrink', 'drink'], ['nEnergy', 'energy'], ['nHealth', 'health']]) {
     const el = $('#' + id), v = state.needs[k];
     el.firstElementChild.style.width = v + '%';
@@ -1907,7 +1968,7 @@ function applySettings() {
   }
   resize();
 }
-const GAME_VER = 78;   // رقم النسخة: بيظهر في الإعدادات وبيقولك لما اللعبة تتحدّث
+const GAME_VER = 79;   // رقم النسخة: بيظهر في الإعدادات وبيقولك لما اللعبة تتحدّث
 function openSettings() {
   if (panelOpen()) return;
   openPanel('الإعدادات', `ظبط اللعبة على جهازك · النسخة ${GAME_VER}`, body => {
@@ -2192,8 +2253,8 @@ function enterHome() {
   transition(() => { state.inside = 'home'; Object.assign(state.player, { x: HOME_IN.x, z: HOME_IN.z + HOME_IN.hd - 1.3, yaw: 0 }); player.pitch = -0.05; });
 }
 function exitHome() {
-  const h = PLACES.find(p => p.id === 'home');
-  transition(() => { state.inside = null; Object.assign(state.player, { x: doorX(h), z: 2.2, yaw: Math.PI }); });
+  const h = PLACES.find(p => p.id === 'home'), f = state.homeFrom;
+  transition(() => { state.inside = null; if (f) { Object.assign(state.player, f); state.homeFrom = null; } else Object.assign(state.player, { x: doorX(h), z: 2.2, yaw: Math.PI }); });   // بترجع من نفس الباب اللي دخلت منه
 }
 function homeTarget() {
   const p = state.player, lv = homeLvl();
@@ -3319,6 +3380,8 @@ function openPhone() {
     let screen;
     if (!phoneApp) {
       screen = `<div class="ph-home">
+        <button type="button" class="ph-app" data-act="app:msgs"><span>💬</span>رسايل${lifeUnread() ? ` (${lifeUnread()})` : ''}</button>
+        <button type="button" class="ph-app" data-act="app:family"><span>👨‍👩‍👧</span>العيلة</button>
         <button type="button" class="ph-app" data-act="app:rep"><span>⭐</span>سمعة محلّي</button>
         <button type="button" class="ph-app" data-act="app:ads"><span>📢</span>إعلانات</button>
         <button type="button" class="ph-app" data-act="app:news"><span>📰</span>الأخبار والأسعار</button>
@@ -3338,6 +3401,10 @@ function openPhone() {
       screen = `<div class="ph-head"><button type="button" class="ph-back" data-act="home">› رجوع</button><b>التقارير</b></div><div class="ph-list">${reportsHTML()}</div>`;
     } else if (phoneApp === 'insta') {
       screen = `<div class="ph-head"><button type="button" class="ph-back" data-act="home">› رجوع</button><b>إنستا باي</b></div><div class="ph-list ph-rep">${instaHTML()}</div>`;
+    } else if (phoneApp === 'msgs') {
+      screen = `${msgOpen ? '' : '<div class="ph-head"><button type="button" class="ph-back" data-act="home">› رجوع</button><b>الرسايل</b></div>'}<div class="ph-list ph-rep">${msgsHTML()}</div>`;
+    } else if (phoneApp === 'family') {
+      screen = `<div class="ph-head"><button type="button" class="ph-back" data-act="home">› رجوع</button><b>العيلة</b></div><div class="ph-list ph-rep">${familyHTML()}</div>`;
     } else if (phoneApp === 'cns') {
       screen = `<div class="ph-head"><button type="button" class="ph-back" data-act="home">› رجوع</button><b>استيرادات الصين</b></div><div class="ph-list ph-rep">${cnsPhoneHTML()}</div>`;
     } else if (phoneApp === 'con') {
@@ -3388,6 +3455,8 @@ function openPhone() {
       ...mgrHandlers(),
       ...centralHandlers(),
       ...(phoneApp === 'insta' ? instaHandlers(body) : {}),
+      ...(phoneApp === 'msgs' ? msgActs() : {}),
+      ...(phoneApp === 'family' ? famActs() : {}),
       rep: i => { closePanel(); showReport(state.reports[+i]); },
       list: () => { phoneSeller = null; rerender(); },
     });
@@ -4499,7 +4568,7 @@ function updateCustomers(dt) {
     custTimer -= dt;
     const sales = onShiftN('sales');
     if (custTimer <= 0) {
-      custTimer = rand(18, 34) / (1 + 0.5 * sales) / repMult() / drawMult() / season().demand / shiftDemand() / cityMult();
+      custTimer = rand(18, 34) / (1 + 0.5 * sales) / repMult() / drawMult() / season().demand / shiftDemand() / cityMult() / kidBoost('shop');
       if (shopCrowd() < shopCap()) spawnCustomer();
     }
   }
@@ -5521,7 +5590,7 @@ function simulateShop(mins) {
   }
   // نفس معدل الزباين اللي في المحل وانت صاحي (بالثانية الحقيقية)، ومحدود بسعة المحل وسرعة الكاشير
   const sec = mins / settings.timeSpeed;   // الثواني الحقيقية اللي كانت هتعدّي
-  let rate = (1 + 0.5 * sales) * repMult() * drawMult() * season().demand * shiftDemand() * cityMult() / 26;
+  let rate = (1 + 0.5 * sales) * repMult() * drawMult() * season().demand * shiftDemand() * cityMult() * kidBoost('shop') / 26;
   rate = Math.min(rate, shopCap() / 40, cash ? cash / checkoutSec() : 0);
   simAcc += rate * sec * 0.85;   // 0.85: الزباين الحقيقيين بياخدوا وقت يمشوا ويختاروا
   let n = Math.floor(simAcc); simAcc -= n;
@@ -5679,7 +5748,7 @@ function mkSetPrices() {
 }
 const mkRepMult = () => 0.5 + mk().rep / 5;
 // الزباين في الساعة (قبل حدود الكاشير)
-const mkRate = (sh = curShift()) => (sh === 'pm' ? 8 : 26) * cityMult() * mkUpMult().t * mkRepMult() * MK_POLICY[mk().policy].traffic * (season().id === 'summer' ? 1.1 : 1);
+const mkRate = (sh = curShift()) => (sh === 'pm' ? 8 : 26) * cityMult() * mkUpMult().t * mkRepMult() * MK_POLICY[mk().policy].traffic * (season().id === 'summer' ? 1.1 : 1) * kidBoost('mk');
 function mkTargets(sh) {
   const lvl = { lean: 0.8, normal: 1, plenty: 1.4 }[mk().staffLvl];
   return { cashier: Math.max(1, Math.ceil(mkRate(sh) * lvl / mkCashRate() * 1.15)), stock: Math.max(1, Math.round((sh === 'pm' ? 1 : 2) * lvl)) };
@@ -7535,8 +7604,8 @@ let FLEET_MAT = null;
 function mergeGeos(parts) {
   const pos = [], nor = [], col = [], idx = []; let off = 0;
   for (const { g, c } of parts) {
-    const C = new THREE.Color(c), P = g.attributes.position, N = g.attributes.normal;
-    for (let i = 0; i < P.count; i++) { pos.push(P.getX(i), P.getY(i), P.getZ(i)); nor.push(N.getX(i), N.getY(i), N.getZ(i)); col.push(C.r, C.g, C.b); }
+    const C = new THREE.Color(c ?? '#ffffff'), P = g.attributes.position, N = g.attributes.normal, CA = c == null ? g.attributes.color : null;   // c فاضي = خد ألوان النقط اللي في الرسمة
+    for (let i = 0; i < P.count; i++) { pos.push(P.getX(i), P.getY(i), P.getZ(i)); nor.push(N.getX(i), N.getY(i), N.getZ(i)); if (CA) col.push(CA.getX(i), CA.getY(i), CA.getZ(i)); else col.push(C.r, C.g, C.b); }
     if (g.index) for (let i = 0; i < g.index.count; i++) idx.push(g.index.getX(i) + off); else for (let i = 0; i < P.count; i++) idx.push(i + off);
     off += P.count; g.dispose();
   }
@@ -8117,7 +8186,7 @@ function dayRate(p) {   // جزء المرحلة اللي بيخلص في يوم
 function dayCost(p) {
   const s = conStage(p); if (!s) return 0;
   let c = p.crew.e * WAGE.e;
-  if (p.mode === 'daily') c += p.crew.w * WAGE.w + p.crew.c * WAGE.c;
+  if (p.mode === 'daily') c += (p.crew.w * WAGE.w + p.crew.c * WAGE.c) * (2 - kidBoost('con'));   // ابنك المهندس بيوفّر في اليوميات
   if (s.rent && !ownsEquip(p.n, RENT[s.rent].own)) c += RENT[s.rent].day;
   return c;
 }
@@ -8944,7 +9013,7 @@ function cnsNew() {
 const cnsToday = () => { const S = state.cns; if (!S.today || S.today.day !== state.day) S.today = { day: state.day, cust: 0, rev: 0, cogs: 0, lost: 0, oos: 0, walk: 0, items: {}, exp: 0 }; return S.today; };
 const cnsLog = (x, erp) => { const S = state.cns, L = erp ? S.erpLog : S.log; L.unshift({ t: `ي${state.day} · ${clockText()}`, x }); if (L.length > 15) L.length = 15; };
 const cnsOn = (r, sh) => state.cns ? state.cns.staff.filter(e => e.role === r && e.shift === sh).length : 0;
-const cnsRate = h => 30 * cnsHourMult(h) * cityMult() * cnsUp().t * (0.5 + state.cns.rep / 5);   // زباين في الساعة
+const cnsRate = h => 30 * cnsHourMult(h) * cityMult() * cnsUp().t * (0.5 + state.cns.rep / 5) * kidBoost('cns');   // زباين في الساعة
 function cnsTargets(sh) {
   const S = state.cns, k = CNS_LVL[S.lvl].k, peak = 30 * CNS_SH[sh].peak * cityMult() * cnsUp().t * (0.5 + S.rep / 5), ex = r => (S.extra[r + sh] || 0);
   return { cashier: Math.max(1, Math.ceil(peak * k / (CNS_CASH * cnsUp().cash) * 1.1)) + ex('cashier'), sales: Math.max(1, Math.ceil(peak * k / CNS_SALES * 0.6)) + ex('sales'), stock: Math.max(1, Math.round(peak / 40 * k)) + ex('stock'), security: 1 + ex('security') };
@@ -9306,7 +9375,7 @@ const W2 = () => cnsBox().x1 - cnsBox().x0;
 function bakePerson(g) {
   g.updateMatrixWorld(true);
   const inv = new THREE.Matrix4().copy(g.matrixWorld).invert(), parts = [];
-  g.traverse(o => { if (o.isMesh && o.geometry && o.visible) { const geo = o.geometry.clone(); geo.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld)); parts.push({ g: geo, c: o.material && o.material.color ? '#' + o.material.color.getHexString() : '#888888' }); } });
+  g.traverse(o => { if (o.isMesh && o.geometry && o.visible) { const geo = o.geometry.clone(); geo.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld)); parts.push({ g: geo, c: geo.attributes.color ? null : o.material && o.material.color ? '#' + o.material.color.getHexString() : '#888888' }); } });
   const m = mergeGeos(parts); m.castShadow = false; return m;
 }
 const dropMesh = m => { scene.remove(m); if (m.geometry) m.geometry.dispose(); };
@@ -9419,6 +9488,666 @@ function returnRental(k) {
   const F = FLEET[v.model]; delete state.vehicles[k]; syncVehicles();
   toast(`📅 مدة إيجار ال${F.name} خلصت ورجعت للمعرض`, '', 5000); save();
 }
+
+// ================= الحياة الشخصية: تعارف، رسايل ومكالمات، خروجات، هدايا، غيرة وصلح، التقدم للأهل، الجواز، البيت، العيال =================
+const LIFE = () => state.life || (state.life = { girls: [], seq: 0, partner: null, msgs: {}, inbox: {}, date: null, gifts: {}, talk: {}, giftDay: {}, visit: null, fiance: null, wife: null, home: { kind: 'old' }, kids: [], preg: null, wantKids: true, lastRot: 0, retry: 0 });
+const G_NAMES = ['منة', 'ياسمين', 'نور', 'سلمى', 'مريم', 'هنا', 'فريدة', 'جنى', 'ملك', 'رنا', 'سارة', 'آية', 'شهد', 'ليلى', 'نادين', 'هدير', 'روان', 'رحمة', 'جميلة', 'لارا', 'تقى', 'حبيبة', 'يارا', 'سما'];
+const F_NAMES = ['عم محمود', 'الحاج سعيد', 'المستشار فاروق', 'الدكتور حسين', 'اللواء صلاح', 'الحاج عبد الرحمن', 'المهندس كمال', 'الأستاذ رأفت'];
+// أماكن البنات ومواعيدهم
+const G_SPOTS = {
+  library: { x: 45.5, z: 2.7, from: 9, to: 18, job: 'طالبة آداب وبتذاكر في مكتبة النور', where: 'قدام مكتبة النور' },
+  travel:  { x: 59.2, z: 2.7, from: 10, to: 19, job: 'موظفة حجوزات في مكتب السفر', where: 'قدام مكتب السفر' },
+  kiosk:   { x: 99.2, z: 3.2, from: 16, to: 23, job: 'ساكنة في الشارع', where: 'جنب كشك عم سيد' },
+  bank:    { x: 152, z: 2.7, from: 9, to: 17, job: 'موظفة خدمة عملاء في البنك', where: 'قدام البنك' },
+  mall:    { x: 72, z: 35.5, from: 12, to: 23, job: 'بتشتغل في محل ملابس في المول', where: 'في المول جنب النافورة' },
+  mall2:   { x: 104, z: 44, from: 13, to: 22, job: 'دكتورة صيدلانية', where: 'بتتسوق في المول' },
+  park:    { x: -96, z: 33, from: 16, to: 22, job: 'مهندسة ديكور', where: 'في حديقة الحياة' },
+  show:    { x: -46, z: 44.5, from: 10, to: 20, job: 'مسؤولة مبيعات في معرض العربيات', where: 'في معرض الصحراوي' },
+  capital: { x: -573, z: 3.4, from: 9, to: 16, job: 'مهندسة موقع في العاصمة الجديدة', where: 'عند بوابة العاصمة' },
+};
+const G_CLASS = { simple: { name: 'عيلة بسيطة', worth: 300000, w: 0.45 }, mid: { name: 'عيلة متوسطة', worth: 5000000, w: 0.38 }, rich: { name: 'عيلة غنية', worth: 50000000, w: 0.17 } };
+const G_STYLE_NAME = { romantic: 'رومانسية', funny: 'بتحب الهزار', serious: 'عملية', ambitious: 'بتحب الطموح', humble: 'بسيطة', bold: 'بتحب الجرأة', traditional: 'محافظة', adventure: 'بتحب المغامرة' };
+const G_STAGE = ['متعرفتوش', 'معرفة', 'معاك رقمها', 'بتخرجوا', 'حبيبتك ❤️', 'خطيبتك 💍', 'مراتك 👰'];
+const VENUES = {
+  foul:   { name: 'مطعم أبو علي', icon: '🫘', cost: 300, tier: 1, act: 'تتعشّوا فول وطعمية وكشري', fit: ['humble', 'traditional', 'funny'] },
+  cafe:   { name: 'كافيه ليالي (المول)', icon: '☕', shop: 6, cost: 700, tier: 2, act: 'تشربوا قهوة وتتكلموا', fit: ['serious', 'romantic', 'humble'] },
+  fancy:  { name: 'مطعم الأمراء (المول)', icon: '🕯️', shop: 7, cost: 3500, tier: 3, act: 'عشا فاخر على الشموع', fit: ['romantic', 'ambitious', 'bold'] },
+  cinema: { name: 'سينما المول', icon: '🎬', shop: 8, cost: 900, tier: 2, act: 'تتفرّجوا على فيلم وفشار', fit: ['funny', 'adventure', 'romantic'] },
+  park:   { name: 'حديقة الحياة', icon: '🌳', cost: 0, tier: 1, act: 'تتمشّوا في الحديقة جنب النافورة', fit: ['romantic', 'humble', 'adventure'] },
+  mall:   { name: 'تمشية في المول', icon: '🛍️', cost: 0, tier: 1, act: 'تتمشّوا وتتفرّجوا على المحلات', fit: ['adventure', 'funny', 'ambitious'] },
+};
+const GIFTS = {
+  rose:    { name: 'بوكيه ورد', icon: '💐', price: 350, shop: 9, v: 1 },
+  choc:    { name: 'شوكولاتة فاخرة', icon: '🍫', price: 280, shop: 9, v: 1 },
+  teddy:   { name: 'دبدوب', icon: '🧸', price: 650, shop: 9, v: 1.3 },
+  perfume: { name: 'برفان', icon: '🧴', price: 3200, shop: 10, v: 2.5 },
+  bag:     { name: 'شنطة ماركة', icon: '👜', price: 6500, shop: 10, v: 3 },
+  watch:   { name: 'ساعة', icon: '⌚', price: 12000, shop: 10, v: 3.5 },
+  gold:    { name: 'سلسلة دهب', icon: '📿', price: 22000, shop: 10, v: 4.5 },
+  ring:    { name: 'خاتم ألماظ', icon: '💍', price: 75000, shop: 10, v: 6 },
+};
+const VENUE_SHOPS = { 6: 'cafe', 7: 'fancy', 8: 'cinema', 9: 'gifts', 10: 'jewel' };
+// الكلام: الجملة بتاعتها وتلات ردود، كل رد ليه طابع
+const TALK_FIRST = [
+  { q: 'أيوه؟ 🙂', a: [['صباح الخير، أنا ساكن هنا في الشارع وحبيت أتعرّف', 'humble'], ['شكلك مش من هنا… أكيد من مكان أحلى 😄', 'funny'], ['أنا صاحب محلات في المنطقة، ممكن رقمك؟', 'bold']] },
+  { q: 'إنت بتكلمني أنا؟', a: [['آسف لو عطّلتك، شفتك كذا مرة وحبيت أسلّم', 'traditional'], ['تعرفي أحسن كافيه قريب من هنا؟ أنا جديد', 'adventure'], ['إنتي شغالة هنا؟ أنا كمان شغلي جنب هنا', 'serious']] },
+  { q: 'نعم؟ أقدر أساعدك؟', a: [['كنت محتاج رأي حد ذوقه حلو زيك 😊', 'romantic'], ['بدوّر على حد طموح نتكلم في مشاريع', 'ambitious'], ['لا ولا حاجة، بس الجو حلو النهارده 😅', 'funny']] },
+];
+const TALKS = [
+  { q: 'إيه أكتر حاجة بتحبها في شغلك؟', a: [['إني ببني حاجة بإيدي وبكبّرها يوم بيوم', 'ambitious'], ['إن الناس بتتبسط من اللي بعمله', 'humble'], ['الفلوس بصراحة 😂', 'funny']] },
+  { q: 'بتعمل إيه في وقت فراغك؟', a: [['بسافر وأكتشف أماكن جديدة', 'adventure'], ['بقعد مع أهلي وصحابي', 'traditional'], ['بقرا وبطوّر نفسي', 'serious']] },
+  { q: 'شايف نفسك فين بعد 5 سنين؟', a: [['صاحب أكبر شركة في العاصمة الجديدة', 'ambitious'], ['متجوز ومستقر وعندي بيت هادي', 'romantic'], ['معرفش، بعيش يوم بيوم 😅', 'funny']] },
+  { q: 'إيه رأيك في الحب من أول نظرة؟', a: [['مصدّقه… وحصلّي قريب 😉', 'romantic'], ['الحب محتاج عِشرة ووقت', 'serious'], ['ده في الأفلام بس', 'funny']] },
+  { q: 'بتحب الأكل البيتي ولا برا؟', a: [['أكل أمي مفيش زيه', 'traditional'], ['بحب أجرّب مطاعم جديدة', 'adventure'], ['أي حاجة فيها كشري 😂', 'funny']] },
+  { q: 'إيه أكتر حاجة بتضايقك في الناس؟', a: [['الكدب', 'serious'], ['اللي مش بيحترم البنت', 'traditional'], ['اللي ملوش طموح', 'ambitious']] },
+  { q: 'لو كسبت مليون جنيه النهارده هتعمل بيهم إيه؟', a: [['هشغّلهم وأخليهم عشرة', 'ambitious'], ['هعزمك على عشا في أشيك مطعم 😉', 'bold'], ['هساعد أهلي الأول', 'humble']] },
+  { q: 'بتحب الهدوء ولا الزحمة؟', a: [['الهدوء… قعدة على البحر', 'romantic'], ['الزحمة والناس والحركة', 'adventure'], ['على حسب المود 😄', 'funny']] },
+  { q: 'إيه رأيك في البنت اللي بتشتغل؟', a: [['حاجة جميلة وأنا بشجّعها', 'serious'], ['المهم بيتها وعيالها', 'traditional'], ['لو حابة تشتغل معايا كمان أحسن 😄', 'ambitious']] },
+  { q: 'آخر مرة زعلت فيها إمتى؟', a: [['لما خسرت فلوس في صفقة… اتعلمت كتير', 'humble'], ['أنا مبزعلش 😎', 'bold'], ['وأنا بتفرّج على فيلم رومانسي بصراحة', 'romantic']] },
+  { q: 'بتحب السفر؟', a: [['جدًا! نفسي ألف الدنيا', 'adventure'], ['بسافر للشغل، الصين مثلًا', 'ambitious'], ['بحب بلدي أكتر', 'traditional']] },
+  { q: 'شايفني إزاي؟', a: [['أحلى حاجة حصلتلي في المدينة دي', 'romantic'], ['بنت جدعة وعاقلة', 'serious'], ['زي القمر بس بتتأخري في الرد 😂', 'funny']] },
+  { q: 'بتصلي وبتحب الدين؟', a: [['الحمد لله، ربنا فوق كل حاجة', 'traditional'], ['بحاول أكون أحسن كل يوم', 'humble'], ['كل واحد وعلاقته بربنا', 'serious']] },
+  { q: 'إيه أكتر حاجة نفسك فيها؟', a: [['بيت كبير مليان عيال', 'traditional'], ['أسافر حوالين العالم', 'adventure'], ['أبقى أنجح واحد في البلد', 'ambitious']] },
+];
+const MSG_TOPICS = [
+  { q: 'صباح الخير ☀️', a: [['صباح الفل على أحلى بنت', 'romantic'], ['صباح النور، يومك عامل إيه؟', 'serious'], ['صباحو 😴 لسه صاحي', 'funny']] },
+  { q: 'بتعمل إيه دلوقتي؟', a: [['في الشغل، بس بفكّر فيكي 😉', 'romantic'], ['عندي اجتماع مهم، هكلمك بعدين', 'ambitious'], ['ولا حاجة، زهقان 😂', 'funny']] },
+  { q: 'يومي كان صعب أوي النهارده 😔', a: [['ألف سلامة عليكي، احكيلي حصل إيه', 'humble'], ['متزعليش، بكرة أحسن ❤️', 'romantic'], ['عادي كلنا كده 😅', 'funny']] },
+  { q: 'ماما بتسأل عليك 😄', a: [['سلّميلي عليها جدًا', 'traditional'], ['قوليلها قريب هزورها 😉', 'bold'], ['بجد؟ بتقول إيه عني؟ 😂', 'funny']] },
+  { q: 'وحشتني', a: [['وإنتي أكتر ❤️', 'romantic'], ['أشوفك بكرة؟', 'serious'], ['طبيعي 😎', 'bold']] },
+  { q: 'إيه رأيك في الفستان ده؟ 📸', a: [['تحفة عليكي', 'romantic'], ['حلو بس اللون التاني أحلى', 'serious'], ['كل حاجة حلوة عليكي 😄', 'funny']] },
+  { q: 'شفت الفيلم الجديد اللي في السينما؟ 🎬', a: [['لأ، ما تيجي نشوفه سوا؟', 'adventure'], ['مبحبش أفلام كتير', 'serious'], ['مستنيكي نشوفه مع بعض 😄', 'romantic']] },
+  { q: 'أنا اتعيّنت في مكان أحسن 🎉', a: [['مبروك! كنت عارف إنك شاطرة', 'ambitious'], ['ألف مبروك، ربنا يوفقك', 'traditional'], ['يبقى العزومة عليكي 😂', 'funny']] },
+  { q: 'مش عارفة أنام 🌙', a: [['احكيلي إيه اللي شاغلك', 'humble'], ['أنا كمان بفكّر فيكي', 'romantic'], ['عدّي خرفان 🐑😂', 'funny']] },
+];
+const MSG_JEALOUS = { q: 'مين اللي كنت بتكلمها في الشارع؟ 😠', a: [['دي معرفة عادية، إنتي اللي في قلبي', 'romantic'], ['إنتي بتغيري عليا؟ 😄', 'funny'], ['ملكيش دعوة', 'bold']] };
+const MSG_NEGLECT = { q: 'إنت فين؟ بقالك كتير مسألتش عليا 😒', a: [['حقك عليا، الشغل كان واكلني', 'humble'], ['وحشتيني والله، نخرج بكرة؟', 'romantic'], ['كنت مشغول، عادي', 'bold']] };
+const REACT = { up: ['😊 حلو أوي الكلام ده', 'إنت دمك خفيف بجد 😄', 'بحب طريقة تفكيرك', 'ده بالظبط اللي بفكر فيه', '❤️'], mid: ['اممم، ماشي', 'فاهمة قصدك', 'حلو 🙂', 'تمام'], down: ['مش عاجبني الكلام ده 😐', 'إيه ده؟ 🙄', 'مكنتش متوقعة كده منك', 'ماشي… 😒'] };
+const GOLD_G = 4400;   // جرام الدهب عيار 21
+const WEDDINGS = { roof: { name: 'فرح على السطوح', cost: 60000, lv: 0 }, hall: { name: 'قاعة أفراح', cost: 350000, lv: 1 }, hotel: { name: 'فرح في فندق 5 نجوم', cost: 2500000, lv: 2 } };
+const DEMANDS = { simple: { shabka: 50 * GOLD_G, mahr: 30000, qayma: 200000, wed: 'roof', muakhar: 100000 }, mid: { shabka: 150 * GOLD_G, mahr: 200000, qayma: 800000, wed: 'hall', muakhar: 1000000 }, rich: { shabka: 2500000, mahr: 2000000, qayma: 5000000, wed: 'hotel', muakhar: 10000000 } };
+
+// ---------- البنات ----------
+function newGirl() {
+  const L = LIFE(), used = new Set(L.girls.map(g => g.name)), names = G_NAMES.filter(n => !used.has(n));
+  const takenSpots = new Set(L.girls.filter(g => !g.gone).map(g => g.spot)), spots = Object.keys(G_SPOTS).filter(s => !takenSpots.has(s));
+  let r = Math.random(), cls = 'simple'; for (const [k, c] of Object.entries(G_CLASS)) { if ((r -= c.w) <= 0) { cls = k; break; } }
+  const styles = Object.keys(G_STYLE_NAME), likes = []; while (likes.length < 2) { const s = pick(styles); if (!likes.includes(s)) likes.push(s); }
+  let dislike = pick(styles); while (likes.includes(dislike)) dislike = pick(styles);
+  const trad = likes.includes('traditional'), scarf = Math.random() < (trad ? 0.85 : 0.45);
+  const g = { id: ++L.seq, name: names.length ? pick(names) : pick(G_NAMES), age: randi(21, 29), spot: spots.length ? pick(spots) : pick(Object.keys(G_SPOTS)), cls, likes, dislike,
+    venues: Object.keys(VENUES).filter(v => VENUES[v].fit.some(s => likes.includes(s))).slice(0, 2), favGift: pick(Object.keys(GIFTS)), jealous: Math.round(rand(0.2, 0.9) * 100) / 100,
+    look: { fem: true, scarf, skin: pick(['#f1c27d', '#e0ac69', '#ffdbac', '#c68642', '#d8a878']), hair: pick(['#2b1b10', '#111', '#5a3a1a', '#3a2414', '#7a4a22']), shirt: pick(['#c0392b', '#8e44ad', '#16a085', '#e67e22', '#2e86c1', '#d35400', '#c96a8a', '#f1ece0', '#2c3a47']), scarfC: pick(['#f1ece0', '#c96a8a', '#2c3a47', '#8e44ad', '#d8a878', '#16a085']), pants: pick(['#2c3e50', '#3b3b3b', '#1f3a5f', '#ecf0f1']), dress: Math.random() < (trad ? 0.7 : 0.35), hairStyle: pick(['long', 'pony', 'bun', 'long']) },
+    aff: 0, stage: 0, mood: 0, moodUntil: 0, dates: 0, touch: state.day, met: false, father: pick(F_NAMES) };
+  L.girls.push(g); return g;
+}
+const girl = id => LIFE().girls.find(g => g.id === id);
+const activeGirls = () => LIFE().girls.filter(g => !g.gone);
+function lifeInit() {
+  const L = LIFE();
+  while (activeGirls().filter(g => g.stage < 6).length < 5) newGirl();
+}
+const hearts = a => { const n = clamp(Math.round(a / 20), 0, 5); return '❤️'.repeat(n) + '🤍'.repeat(5 - n); };
+const moodTxt = g => g.mood === 2 ? '😠 زعلانة جامد' : g.mood === 1 ? '😒 زعلانة شوية' : '🙂 مبسوطة';
+const likeTxt = g => g.met ? `${G_STYLE_NAME[g.likes[0]]} و${G_STYLE_NAME[g.likes[1]]}` : 'لسه متعرفهاش';
+function gReact(g, style) {
+  let d = g.likes.includes(style) ? rand(6, 9) : g.dislike === style ? -rand(5, 8) : rand(1, 3);
+  if (d > 0 && g.mood === 1) d *= 0.5; if (d > 0 && g.mood === 2) d *= 0.2;
+  if (g.stage >= 4) d *= 0.7;
+  return Math.round(d);
+}
+function gAdd(g, d) { g.aff = clamp(g.aff + d, -30, 100); }
+const reactLine = d => pick(d >= 4 ? REACT.up : d >= 0 ? REACT.mid : REACT.down);
+function setMood(g, m, hours) { if (m > g.mood || m === 0) { g.mood = m; g.moodUntil = m ? absNow() + hours * 60 : 0; } }
+function pushMsg(g, from, text) { const L = LIFE(), T = L.msgs[g.id] || (L.msgs[g.id] = []); T.push({ from, text, t: `ي${state.day} ${clockText()}` }); if (T.length > 40) T.splice(0, T.length - 40); }
+function sendHer(g, kind, topic, hours = 3) {
+  const L = LIFE(); if (L.inbox[g.id]) return;
+  const tp = topic || pick(MSG_TOPICS);
+  L.inbox[g.id] = { kind, tp, at: absNow(), dl: absNow() + hours * 60 * (1.6 - g.jealous * 0.6) };
+  pushMsg(g, 'her', kind === 'call' ? '📞 بتتصل بيك…' : tp.q);
+  if (kind === 'call') toast(`📞 ${g.name} بتتصل بيك · افتح الموبايل ورد`, '', 5000); else toast(`💬 ${g.name}: ${tp.q}`, '', 4500);
+  updateHUD();
+}
+const lifeUnread = () => state.life ? Object.keys(state.life.inbox).length : 0;
+// بتقابلها في الشارع: مين قريب منك
+const lifeVis = { girls: {}, comp: null, home: [], homeKey: '' };
+function girlHere(g) {
+  if (g.gone || g.stage >= 6 || state.inside || inChina()) return null;
+  const L = LIFE(), d = L.date, h = hourNow(), S = G_SPOTS[g.spot];
+  if (d && d.gid === g.id) { if (d.state === 'with') return 'comp'; if (absNow() >= d.at - 30 && absNow() <= d.at + 60) return 'venue'; return null; }
+  if (L.visit && L.visit.gid === g.id && absNow() >= L.visit.at - 60) return null;   // بتجهز للزيارة
+  return h >= S.from && h < S.to ? 'spot' : null;
+}
+function venueSpot(v) {
+  if (v === 'foul') { const p = PLACES.find(x => x.id === 'foul'); return { x: doorX(p) + 1.2, z: 2.2 }; }
+  if (v === 'park') return { x: GPARK.x0 + (GPARK.x1 - GPARK.x0) / 2 + 3.5, z: (GPARK.z0 + GPARK.z1) / 2 };
+  if (v === 'mall') return { x: 86, z: 33 };
+  const s = MALL_SHOPS.find(x => x.n === VENUES[v].shop); return { x: (s.x0 + s.x1) / 2, z: s.z1 + 1.3 };
+}
+function nearGirl() {
+  if (state.inside || inChina()) return null;
+  const p = state.player;
+  for (const g of activeGirls()) {
+    const o = lifeVis.girls[g.id]; if (!o || !o.m.visible) continue;
+    if (Math.hypot(p.x - o.x, p.z - o.z) < (o.mode === 'comp' ? 1.6 : 1.9)) {
+      const L = LIFE(), d = L.date, waiting = d && d.gid === g.id && d.state === 'planned';
+      return { type: 'girl', id: 'g' + g.id, gid: g.id, verb: waiting ? `تقابل ${g.name} وتبدأوا الخروجة` : o.mode === 'comp' ? `تتكلم مع ${g.name} (خارجين سوا)` : g.met ? `تكلّم ${g.name}` : 'تتعرّف عليها', act: waiting ? 'قابلها' : 'كلّمها' };
+    }
+  }
+  return null;
+}
+// ---------- الكلام وش لوش ----------
+function girlPanel(gid) {
+  const g = girl(gid), L = LIFE(); if (!g) return;
+  const d = L.date;
+  if (d && d.gid === gid && d.state === 'planned' && absNow() >= d.at - 30) return datePanel(gid);
+  let cur = null, res = '';
+  openPanel(g.met ? g.name : 'بنت في الشارع', g.met ? `${g.age} سنة · ${G_SPOTS[g.spot].job} · ${G_CLASS[g.cls].name}` : G_SPOTS[g.spot].where, b => {
+    const talks = L.talk[g.id + ':' + state.day] || 0, partner = L.partner && girl(L.partner), other = partner && partner.id !== g.id;
+    let h = g.met ? `<div class="two"><div class="stat acc"><small>${G_STAGE[g.stage]}</small><b>${hearts(g.aff)}</b><small>${moodTxt(g)}</small></div><div class="stat"><small>بتحب</small><b style="font-size:15px">${likeTxt(g)}</b><small>خرجتوا ${g.dates} مرة</small></div></div>` : '';
+    if (res) h += `<div class="msg">${res}</div>`;
+    if (cur) h += `<div class="msg">«${cur.q}»</div>` + cur.a.map(([t], i) => `<button class="big" type="button" data-act="ans:${i}"><b>${t}</b></button>`).join('');
+    else {
+      const acts = [];
+      if (!g.met) acts.push(['hi', '👋 سلّم عليها واتعرّف']);
+      else {
+        acts.push(['chat', talks >= 2 ? '💬 اتكلمتوا كفاية النهارده' : '💬 اتكلم معاها', talks >= 2]);
+        if (g.mood) acts.push(['sorry', '🙏 اعتذرلها']);
+        if (g.stage === 1) acts.push(['num', '📱 اطلب رقمها', g.aff < 15]);
+        if (g.stage >= 2 && g.stage <= 4 && !(d && d.gid === g.id)) acts.push(['ask', '🌹 اعزمها على خروجة', g.aff < 25 || (other && g.stage < 4) || !!d]);
+        if (Object.values(L.gifts).some(n => n > 0) && g.stage < 6) acts.push(['gift', '🎁 اديها هدية']);
+        if (g.stage === 3 && !partner) acts.push(['rel', '❤️ تحبي نرتبط؟', g.aff < 55 || g.dates < 2]);
+        if (g.stage === 4 && !L.visit && !L.fiance) acts.push(['prop', '💍 عايز أتقدّم لأهلك', g.aff < 85 || g.dates < 4 || state.day < L.retry]);
+        if (L.visit && L.visit.gid === g.id && absNow() >= L.visit.at - 60) acts.push(['visit', '🏠 يلا على بيت أهلها']);
+        if (d && d.gid === g.id && d.state === 'with') acts.push(['end', '🚕 روّحها (خلّص الخروجة)']);
+        if (g.stage === 4) acts.push(['brk', '💔 نسيب بعض']);
+      }
+      h += acts.map(([k, t, dis]) => `<button class="big" type="button" data-act="${k}" ${dis ? 'disabled' : ''}><b>${t}</b></button>`).join('');
+      if (other && g.stage < 4) h += `<p class="note">انت مرتبط بـ${partner.name}. تقدر تتكلم مع ${g.name} عادي، بس لو ${partner.name} عرفت ممكن تغير.</p>`;
+      if (g.met && g.stage >= 1 && g.stage < 4) h += `<p class="note">${g.aff < 15 ? 'اتكلموا كمان شوية قبل ما تطلب رقمها.' : g.stage >= 2 && g.aff < 25 ? 'محتاجة تعرفك أكتر قبل ما تخرج معاك.' : g.stage === 3 && g.dates < 2 ? 'اخرجوا مرتين على الأقل قبل الارتباط.' : ''}</p>`;
+    }
+    b.innerHTML = h;
+    const talkUsed = () => { L.talk[g.id + ':' + state.day] = (L.talk[g.id + ':' + state.day] || 0) + 1; };
+    const touch = () => { g.touch = state.day; };
+    bind(b, {
+      hi: () => { cur = pick(TALK_FIRST); res = ''; rerender(); },
+      chat: () => { cur = pick(TALKS); res = ''; rerender(); },
+      ans: i => {
+        const [t, st] = cur.a[+i], dlt = gReact(g, st); gAdd(g, dlt); touch(); advanceTime(8);
+        if (!g.met) { g.met = true; g.stage = 1; res = `«${reactLine(dlt)}» · أنا ${g.name}. ${dlt < 0 ? 'بس خلّي بالك من كلامك.' : 'اتشرفت بيك.'}`; }
+        else { talkUsed(); res = `«${reactLine(dlt)}»`; }
+        if (other && g.id !== partner.id) jealousCheck(partner, g);
+        cur = null; save(); rerender();
+      },
+      sorry: () => { touch(); if (g.mood === 2 && !(L.giftDay[g.id] === state.day)) { g.mood = 1; res = '«ماشي… بس أنا لسه زعلانة. هدية صغيرة ممكن تصالحني 😒»'; } else { g.mood = 0; gAdd(g, 2); res = '«خلاص مسامحاك 🙂 بس متتكررش»'; } save(); rerender(); },
+      num: () => { touch(); if (g.aff >= 15 && Math.random() < 0.4 + g.aff / 60) { g.stage = 2; res = `«ماشي 😊 خد رقمي» · اتسجّلت في الموبايل باسم ${g.name}`; pushMsg(g, 'her', `أهلًا، أنا ${g.name} 🙂`); } else { gAdd(g, -2); res = '«لسه بدري شوية 😅»'; } save(); rerender(); },
+      ask: () => { closePanel(); datePlanPanel(g.id); },
+      gift: () => { closePanel(); giftPanel(g.id); },
+      rel: () => { touch(); if (g.aff >= 55 && Math.random() < (g.aff - 40) / 35) { g.stage = 4; L.partner = g.id; gAdd(g, 5); res = '«أيوه ❤️ أنا كمان بحبك»'; toast(`❤️ ${g.name} بقت حبيبتك`, 'good', 5000); } else { gAdd(g, -4); res = '«محتاجة وقت أفكّر…»'; } save(); rerender(); },
+      prop: () => { touch(); const at = (state.day + 1) * 1440 + 20 * 60; L.visit = { gid: g.id, at }; res = `«بجد؟ 😍 تعالى بيتنا بكرة الساعة 8 بالليل. بابا (${g.father}) هيستناك»`; toast('💍 الزيارة بكرة 8 بالليل · كلّمها أو افتح تطبيق العيلة في الموبايل ساعتها', 'good', 6000); save(); rerender(); },
+      visit: () => { closePanel(); fatherVisit(g.id); },
+      end: () => { endDate(true); closePanel(); },
+      brk: () => { if (!confirm('متأكد إنكم تسيبوا بعض؟')) return; g.stage = 2; gAdd(g, -40); setMood(g, 2, 48); L.partner = null; res = '«ماشي… ربنا يوفقك 💔»'; save(); rerender(); },
+    });
+  });
+}
+function jealousCheck(partner, other) {
+  if (Math.random() < partner.jealous * 0.35) {
+    gAdd(partner, -10); setMood(partner, 2, 24);
+    const L = LIFE(); delete L.inbox[partner.id]; sendHer(partner, 'jealous', MSG_JEALOUS, 2);
+    toast(`😠 ${partner.name} شافتك بتكلم ${other.name}!`, 'bad', 5000);
+  }
+}
+// ---------- الخروجات ----------
+let datePick = { v: null, when: 'tonight' };
+function datePlanPanel(gid) {
+  const g = girl(gid), L = LIFE();
+  datePick = { v: g.venues[0] || 'cafe', when: hourNow() < 19 ? 'tonight' : 'tomorrow' };
+  openPanel(`خروجة مع ${g.name}`, 'اختار المكان والمعاد', b => {
+    b.innerHTML = `<h3 class="sec">فين؟</h3>${Object.entries(VENUES).map(([k, V]) => `<button class="big ${datePick.v === k ? 'on' : ''}" type="button" data-act="v:${k}"><b>${V.icon} ${V.name}${datePick.v === k ? ' ✅' : ''}</b><small>${V.act} · ${V.cost ? `حوالي ${fmt(V.cost)}` : 'ببلاش'}</small></button>`).join('')}
+      <h3 class="sec">إمتى؟</h3><div class="seg">${hourNow() < 19 ? `<button type="button" class="${datePick.when === 'tonight' ? 'on' : ''}" data-act="w:tonight">النهارده 8 بالليل</button>` : ''}<button type="button" class="${datePick.when === 'tomorrow' ? 'on' : ''}" data-act="w:tomorrow">بكرة 7 بالليل</button></div>
+      <div class="actions"><button class="btn pri" type="button" data-act="go">اعزمها</button></div>`;
+    bind(b, {
+      v: k => { datePick.v = k; rerender(); }, w: k => { datePick.when = k; rerender(); },
+      go: () => {
+        const accept = g.mood < 2 && Math.random() < 0.55 + g.aff / 80;
+        if (!accept) { toast(`«${g.mood === 2 ? 'مش قادرة أخرج معاك دلوقتي 😒' : 'معلش مش هينفع المرة دي'}»`, 'bad', 4000); gAdd(g, -1); save(); closePanel(); return; }
+        const at = datePick.when === 'tonight' ? state.day * 1440 + 20 * 60 : (state.day + 1) * 1440 + 19 * 60;
+        L.date = { gid, v: datePick.v, at, state: 'planned' }; g.touch = state.day;
+        toast(`🌹 ${g.name} وافقت! ${VENUES[datePick.v].icon} ${VENUES[datePick.v].name} · ${datePick.when === 'tonight' ? 'النهارده 8 بالليل' : 'بكرة 7 بالليل'}`, 'good', 6000);
+        save(); closePanel();
+      },
+    });
+  });
+}
+function datePanel(gid) {
+  const g = girl(gid), L = LIFE(), d = L.date, V = VENUES[d.v];
+  let cur = null, res = '';
+  const late = Math.max(0, absNow() - d.at);
+  openPanel(`${V.icon} خروجة مع ${g.name}`, V.name, b => {
+    let h = `<div class="two"><div class="stat acc"><small>${G_STAGE[g.stage]}</small><b>${hearts(g.aff)}</b><small>${moodTxt(g)}</small></div><div class="stat"><small>${late > 20 ? `اتأخرت ${Math.round(late)} دقيقة` : 'جيت في معادك 👌'}</small><b>${V.cost ? fmt(V.cost) : 'ببلاش'}</b><small>${V.act}</small></div></div>`;
+    if (res) h += `<div class="msg">${res}</div>`;
+    if (cur) h += `<div class="msg">«${cur.q}»</div>` + cur.a.map(([t], i) => `<button class="big" type="button" data-act="ans:${i}"><b>${t}</b></button>`).join('');
+    else if (d.state === 'planned') h += `<button class="big" type="button" data-act="start" ${state.money >= V.cost ? '' : 'disabled'}><b>${V.icon} يلا ${V.act}</b><small>${V.cost ? `هتدفع ${fmt(V.cost)} من المحفظة` : 'ببلاش'}</small></button>`;
+    else h += '<p class="note">خلصتوا! هي ماشية معاك دلوقتي. تقدر تكمّلوا تمشية، أو تروحوا مكان تاني، أو تكلّمها و«روّحها».</p>';
+    b.innerHTML = h;
+    bind(b, {
+      start: () => {
+        if (V.cost && !Economy.spend(V.cost, `خروجة مع ${g.name} · ${V.name}`)) return;
+        let base = 4 + (V.fit.some(s => g.likes.includes(s)) ? 4 : 0) + (g.venues.includes(d.v) ? 2 : 0);
+        if (g.cls === 'rich' && V.tier === 1) base -= 3; if (g.cls !== 'rich' && V.tier === 3) base += 2; if (late > 20) base -= Math.min(8, Math.round(late / 10));
+        gAdd(g, base); g.dates++; g.touch = state.day; if (g.mood === 1) g.mood = 0; if (g.stage === 2) g.stage = 3;
+        advanceTime(80); d.state = 'with'; d.with = absNow();
+        res = `${V.act} ✨ «${base >= 6 ? 'المكان ده تحفة! 😍' : base >= 3 ? 'حلو أوي 🙂' : 'اممم… ماشي'}»`;
+        cur = pick(TALKS); updateHUD(); save(); rerender();
+      },
+      ans: i => { const [, st] = cur.a[+i], dlt = gReact(g, st); gAdd(g, Math.round(dlt * 1.2)); res = `«${reactLine(dlt)}»`; cur = null; save(); rerender(); },
+    });
+  });
+}
+function endDate(good) {
+  const L = LIFE(), d = L.date; if (!d) return;
+  const g = girl(d.gid);
+  if (g && good) { gAdd(g, 2); toast(`🚕 ${g.name}: «شكرًا على اليوم الحلو ده ❤️»`, 'good', 4000); pushMsg(g, 'her', 'وصلت البيت، اليوم كان حلو أوي ❤️'); }
+  L.date = null; save();
+}
+// ---------- الهدايا ----------
+function giftPanel(gid) {
+  const g = girl(gid), L = LIFE();
+  openPanel(`هدية لـ${g.name}`, 'من الشنطة', b => {
+    const have = Object.entries(L.gifts).filter(([, n]) => n > 0);
+    b.innerHTML = have.length ? have.map(([id, n]) => `<button class="big" type="button" data-act="give:${id}"><b>${GIFTS[id].icon} ${GIFTS[id].name}</b><small>عندك ${n}</small></button>`).join('') : '<p class="note">معاكش هدايا. هتلاقي ورد وهدايا في محل 9، ومجوهرات وبرفانات في محل 10 في المول.</p>';
+    bind(b, {
+      give: id => {
+        L.gifts[id]--; const G = GIFTS[id], k = g.id + ':' + state.day, n = (L.giftDay[k] || 0) + 1; L.giftDay[k] = n; L.giftDay[g.id] = state.day;
+        let d = 3 + G.v * 2; if (g.cls === 'rich' && G.v < 2) d *= 0.4; if (g.cls === 'simple' && G.v >= 4) d *= 1.2; if (g.favGift === id) d *= 1.6; if (n > 2) d = 0;
+        gAdd(g, Math.round(d)); g.touch = state.day; if (g.mood && d > 0) g.mood = Math.max(0, g.mood - (G.v >= 2.5 ? 2 : 1));
+        toast(d === 0 ? `«كفاية كده 😅 شكرًا»` : `${G.icon} ${g.name}: «${g.favGift === id ? 'ده بالظبط اللي نفسي فيه 😍' : d >= 8 ? 'الله! شكرًا أوي ❤️' : 'ميرسي 🙂'}»`, 'good', 4000);
+        save(); closePanel();
+      },
+    });
+  });
+}
+function giftShopPanel(n) {
+  const L = LIFE(), shopIds = Object.keys(GIFTS).filter(id => GIFTS[id].shop === n);
+  openPanel(n === 9 ? '💐 ورد وهدايا' : '💎 مجوهرات وبرفانات', 'هدايا لحد غالي', b => {
+    b.innerHTML = `<p class="note">معاك ${fmt(state.money)}. الهدية بتتحط في الشنطة وتديها لها لما تقابلها.</p>` + shopIds.map(id => { const G = GIFTS[id]; return `<div class="hr-row"><div class="hr-top"><b>${G.icon} ${G.name}</b><span>${fmt(G.price)}</span></div><small class="when">عندك ${L.gifts[id] || 0}</small><div class="actions"><button class="btn pri" type="button" data-act="buy:${id}" ${state.money >= G.price ? '' : 'disabled'}>اشتري</button></div></div>`; }).join('');
+    bind(b, { buy: id => { const G = GIFTS[id]; if (!Economy.spend(G.price, `هدية: ${G.name}`)) return; L.gifts[id] = (L.gifts[id] || 0) + 1; toast(`${G.icon} اشتريت ${G.name}`, 'good'); updateHUD(); save(); rerender(); } });
+  });
+}
+// الكافيه والمطعم والسينما لوحدك (لو مفيش خروجة)
+function venueSoloPanel(v) {
+  const V = VENUES[v], L = LIFE(), d = L.date;
+  if (d && d.state === 'planned' && d.v === v && absNow() >= d.at - 30) { toast(`${girl(d.gid).name} مستنياك هنا، قرّب منها`, '', 3000); return; }
+  openPanel(`${V.icon} ${V.name}`, 'المول', b => {
+    const items = v === 'cinema' ? [['film', '🎬 تذكرة فيلم', 250, 'ساعتين · +طاقة نفسية']] : v === 'cafe' ? [['coffee', '☕ قهوة', 90, '+20 طاقة +10 شرب'], ['cake', '🍰 حتة كيك', 120, '+15 أكل']] : [['meal', '🍽️ وجبة فاخرة', 1200, '+70 أكل +20 شرب']];
+    b.innerHTML = items.map(([k, t, c, s]) => `<button class="big" type="button" data-act="i:${k}" ${state.money >= c ? '' : 'disabled'}><b>${t} · ${fmt(c)}</b><small>${s}</small></button>`).join('') + '<p class="note">المكان ده كمان ينفع للخروجات. اعزم حد من الموبايل أو وش لوش.</p>';
+    bind(b, { i: k => { const it = items.find(x => x[0] === k); if (!Economy.spend(it[2], `${V.name}: ${it[1]}`)) return; if (k === 'coffee') applyItem({ energy: 20, drink: 10 }); if (k === 'cake') applyItem({ food: 15 }); if (k === 'meal') applyItem({ food: 70, drink: 20 }); if (k === 'film') { advanceTime(120); state.buffs = state.buffs || {}; state.buffs.relax = absNow() + 240; } toast(`${it[1]} ✓`, 'good'); updateHUD(); save(); rerender(); } });
+  });
+}
+// ---------- الرسايل والمكالمات ----------
+let msgOpen = null;
+function msgsHTML() {
+  const L = LIFE(), cs = activeGirls().filter(g => g.stage >= 2);
+  if (msgOpen && !girl(msgOpen)) msgOpen = null;
+  if (!msgOpen) return cs.length ? cs.map(g => { const T = L.msgs[g.id] || [], last = T[T.length - 1]; return `<button class="big" type="button" data-act="mOpen:${g.id}"><b>${L.inbox[g.id] ? '🔴 ' : ''}${g.name} ${g.stage >= 4 ? '❤️' : ''}</b><small>${last ? (last.from === 'me' ? 'انت: ' : '') + last.text : 'لسه مفيش رسايل'}</small></button>`; }).join('') : '<p class="note">مفيش أرقام لسه. اتعرّف على حد في المدينة واطلب رقمها.</p>';
+  const g = girl(msgOpen), T = L.msgs[g.id] || [], P = L.inbox[g.id];
+  let h = `<div class="ph-head"><button type="button" class="ph-back" data-act="mBack">› الرسايل</button><b>${g.name} ${moodTxt(g).split(' ')[0]}</b></div><div class="chat">${T.slice(-14).map(m => `<div class="bub ${m.from}">${m.text}<small>${m.t}</small></div>`).join('')}</div>`;
+  if (P) {
+    if (P.kind === 'call') h += `<div class="actions"><button class="btn pri" type="button" data-act="mCall">📞 رد</button><button class="btn" type="button" data-act="mDecline">مش فاضي</button></div>`;
+    else if (P.kind === 'invite') h += `<div class="actions"><button class="btn pri" type="button" data-act="mInv:1">أكيد! 😍</button><button class="btn" type="button" data-act="mInv:0">معلش مش هقدر</button></div>`;
+    else h += P.tp.a.map(([t], i) => `<button class="big" type="button" data-act="mAns:${i}"><b>${t}</b></button>`).join('');
+    h += `<small class="when">لازم ترد خلال ${fmtDur(Math.max(0, P.dl - absNow()))}</small>`;
+  } else h += `<div class="actions"><button class="btn" type="button" data-act="mHi">👋 ابعتلها «وحشتيني»</button>${g.stage >= 3 && !L.date ? `<button class="btn" type="button" data-act="mAsk">🌹 اعزمها على خروجة</button>` : ''}</div>`;
+  return h;
+}
+function msgActs() {
+  const L = LIFE();
+  const answer = (g, st, txt) => { const dlt = gReact(g, st); gAdd(g, dlt); g.touch = state.day; pushMsg(g, 'me', txt); delete L.inbox[g.id]; setTimeout(() => { pushMsg(g, 'her', reactLine(dlt)); save(); rerender(); }, 600); save(); rerender(); };
+  return {
+    mOpen: id => { msgOpen = +id; rerender(); }, mBack: () => { msgOpen = null; rerender(); },
+    mAns: i => { const g = girl(msgOpen), P = L.inbox[g.id], [t, st] = P.tp.a[+i]; if (P.kind === 'jealous' && st === 'bold') { gAdd(g, -10); setMood(g, 2, 24); } else if (P.kind === 'jealous' || P.kind === 'neglect') { if (g.mood) g.mood = Math.max(0, g.mood - 1); } answer(g, st, t); },
+    mCall: () => { const g = girl(msgOpen); delete L.inbox[g.id]; pushMsg(g, 'me', '📞 رديت'); L.inbox[g.id] = { kind: 'chat', tp: pick(MSG_TOPICS), at: absNow(), dl: absNow() + 30 }; gAdd(g, 2); rerender(); },
+    mDecline: () => { const g = girl(msgOpen); delete L.inbox[g.id]; pushMsg(g, 'me', '📵 رفضت المكالمة'); gAdd(g, -3); if (g.stage >= 4) setMood(g, 1, 6); save(); rerender(); },
+    mInv: y => { const g = girl(msgOpen); delete L.inbox[g.id]; if (+y) { L.date = { gid: g.id, v: g.venues[0] || 'cafe', at: (state.day + 1) * 1440 + 19 * 60, state: 'planned' }; pushMsg(g, 'me', 'أكيد! 😍'); pushMsg(g, 'her', `خلاص بكرة 7 بالليل في ${VENUES[L.date.v].name} 🥰`); gAdd(g, 3); } else { pushMsg(g, 'me', 'معلش مش هقدر'); gAdd(g, -3); } g.touch = state.day; save(); rerender(); },
+    mHi: () => { const g = girl(msgOpen); pushMsg(g, 'me', 'وحشتيني'); g.touch = state.day; const d = g.aff > 20 ? 2 : 0; gAdd(g, d); setTimeout(() => { pushMsg(g, 'her', g.mood === 2 ? '…' : g.aff > 40 ? 'وإنت أكتر ❤️' : '🙂'); save(); rerender(); }, 600); save(); rerender(); },
+    mAsk: () => { closePanel(); datePlanPanel(msgOpen); },
+  };
+}
+// كل شوية: رسايل جاية، مواعيد بتعدي، خروجات
+function lifeTick(mins) {
+  const L = state.life; if (!L) return;
+  const now = absNow(), h = hourNow();
+  for (const g of activeGirls()) {
+    if (g.mood && g.moodUntil && now >= g.moodUntil) { g.mood = Math.max(0, g.mood - 1); g.moodUntil = g.mood ? now + 360 : 0; }
+    const P = L.inbox[g.id];
+    if (P && now > P.dl) {   // ماردّتش
+      delete L.inbox[g.id]; gAdd(g, g.stage >= 4 ? -6 : -3);
+      if (P.kind === 'call') pushMsg(g, 'her', '📵 مكالمة فايتة'); else pushMsg(g, 'her', '؟؟ انت مبتردش ليه 😒');
+      if (g.stage >= 4) setMood(g, 1, 8);
+    }
+    if (g.stage >= 2 && g.stage <= 5 && !L.inbox[g.id] && h >= 8 && h < 24) {
+      const rate = g.stage >= 4 ? 0.16 : g.stage === 3 ? 0.08 : 0.04;
+      if (Math.random() < rate * mins / 60) {
+        const r = Math.random();
+        if (g.stage >= 3 && !L.date && r < 0.2) { L.inbox[g.id] = { kind: 'invite', tp: null, at: now, dl: now + 240 }; pushMsg(g, 'her', 'فاضي بكرة؟ نخرج سوا؟ 🥰'); toast(`💬 ${g.name}: فاضي بكرة؟ نخرج سوا؟`, '', 4500); updateHUD(); }
+        else if (g.stage >= 4 && r < 0.35) sendHer(g, 'call', null, 0.34);
+        else sendHer(g, 'chat');
+      }
+    }
+  }
+  // الخروجة
+  const d = L.date;
+  if (d) {
+    const g = girl(d.gid);
+    if (!g) L.date = null;
+    else if (d.state === 'planned' && now > d.at + 60) { gAdd(g, -15); setMood(g, 2, 24); pushMsg(g, 'her', 'استنيتك ساعة ومجيتش 😡'); toast(`😡 ${g.name} استنتك ساعة ومجيتش`, 'bad', 5000); L.date = null; }
+    else if (d.state === 'planned' && now >= d.at - 30 && !d.warned) { d.warned = true; toast(`⏰ ${g.name} في ${VENUES[d.v].name} مستنياك`, '', 5000); }
+    else if (d.state === 'with' && now > d.with + 240) { toast(`${g.name}: «لازم أروّح دلوقتي 🙂»`, '', 3500); endDate(true); }
+  }
+  if (L.visit && !L.visit.warned && now >= L.visit.at - 30) { L.visit.warned = true; toast(`🏠 معاد زيارة أهل ${girl(L.visit.gid).name} · افتح تطبيق العيلة واختار «روح بيت أهلها»`, 'good', 6000); }
+  if (L.visit && now > L.visit.at + 180) { const g = girl(L.visit.gid); if (g) { gAdd(g, -20); setMood(g, 2, 48); pushMsg(g, 'her', 'بابا استناك ومجيتش… إحرجتني 😢'); } L.visit = null; L.retry = state.day + 3; }
+  if (L.fiance && L.fiance.day <= state.day && hourNow() >= 19 && !L.fiance.warned) { L.fiance.warned = true; toast('💒 النهارده الفرح! افتح تطبيق العيلة في الموبايل واختار «روح الفرح»', 'good', 7000); }
+}
+// آخر اليوم: الإهمال، الحمل، العيال، بنات جديدة
+function lifeDay() {
+  const L = state.life; if (!L) return;
+  const p = L.partner && girl(L.partner);
+  if (p && p.stage === 4 && state.day - p.touch >= 2) { gAdd(p, -4); setMood(p, 1, 12); delete L.inbox[p.id]; sendHer(p, 'neglect', MSG_NEGLECT, 6); }
+  for (const k of Object.keys(L.talk)) if (!k.endsWith(':' + (state.day + 1)) && !k.endsWith(':' + state.day)) delete L.talk[k];
+  if (state.day - (L.lastRot || 0) >= 12) {   // كل فترة واحدة بتمشي وواحدة جديدة بتيجي
+    L.lastRot = state.day;
+    const cand = activeGirls().filter(g => g.stage <= 1 && g.id !== L.partner);
+    if (cand.length) { const g = pick(cand); g.gone = true; }
+    lifeInit();
+  }
+  if (L.fiance && L.fiance.day + 3 < state.day && !L.wife) { const g = girl(L.fiance.gid); toast(`⚠️ عدّى معاد الفرح بـ3 أيام · ${g.name} وأهلها زعلانين`, 'bad', 5000); gAdd(g, -10); L.fiance.day = state.day + 3; L.fiance.warned = false; }
+  familyDay();
+}
+
+// ---------- زيارة أهلها والتفاوض ----------
+function netWorth() {
+  let w = state.money + (state.bank ? state.bank.balance : 0) + (state.cny || 0) * fxSell();
+  if (isOwned(BIGSHOP())) w += BIGSHOP().price; if (state.owned.market) w += MK.price;
+  for (const [n, I] of Object.entries(state.invests || {})) if (I.owned) w += INVESTS[n].price;
+  if (state.con) { for (const L of Object.values(state.con.lands)) w += L.paid; for (const p of Object.values(state.con.projects)) if (p.done) w += p.TA * conM2Value(p) * (p.mk && p.mk.soldAll ? 0 : 1 - (p.mk ? p.mk.sold / p.U : 0)) * 0.7; w += state.con.box; }
+  if (state.cns) w += state.cns.safe + state.cns.budget;
+  for (const v of Object.values(state.vehicles || {})) if (v && v.model && !v.rent) w += FLEET[v.model].price * 0.75;
+  return Math.round(w);
+}
+// أماكن السكن اللي ممكن تعرضها على أبوها
+function homeOptions() {
+  const out = [{ kind: 'old', name: `شقتك في وايلد سيتي (${HOME_LEVELS[homeLvl()].name})`, lvl: homeLvl() >= 3 ? 1 : 0 }];
+  if (state.con) for (const p of Object.values(state.con.projects)) {
+    if (!p.done || (p.mk && p.mk.soldAll)) continue;
+    const free = p.U - (p.mk ? p.mk.sold + rentedN(p) : 0);
+    if (p.type === 'res' && free > 0) out.push({ kind: 'unit', n: p.n, name: `شقة في ${bName(p)} (بلوك ${p.n})`, lvl: 1 });
+    if (p.type === 'villa' && free > 0) out.push({ kind: 'villa', n: p.n, name: `فيلا في ${bName(p)} (بلوك ${p.n})`, lvl: 2 });
+    if (['res', 'office', 'hotel'].includes(p.type) && p.F >= 8) out.push({ kind: 'pent', n: p.n, name: `بنتهاوس فوق ${bName(p)} (بلوك ${p.n})`, lvl: 2 });
+  }
+  return out;
+}
+const homeNeed = cls => cls === 'rich' ? 2 : cls === 'mid' ? 1 : 0;
+function fatherVisit(gid) {
+  const g = girl(gid), L = LIFE(), F = g.father, D = DEMANDS[g.cls];
+  if (!L.visit || L.visit.gid !== gid) return;
+  transition(() => { advanceTime(40); });
+  let step = 0, score = 0, home = null, neg = null, res = '', patience = 3;
+  const worth = netWorth(), need = G_CLASS[g.cls].worth;
+  openPanel(`🏠 بيت أهل ${g.name}`, `${F} · ${G_CLASS[g.cls].name}`, b => {
+    let h = res ? `<div class="msg">${res}</div>` : '';
+    const opts = homeOptions();
+    if (step === 0) h += `<div class="msg">${F}: «أهلًا يا ابني، اتفضل. ${g.name} حكتلنا عنك كتير. قولّي بقى، بتشتغل إيه؟»</div>`
+      + [['أنا عصامي وبنيت شغلي من الصفر، وعندي مشاريع ماشية الحمد لله', 'humble'], ['أنا من أكبر رجال الأعمال في المدينة', 'bold'], ['شغال وبجتهد وعندي خطة واضحة للمستقبل', 'serious']].map(([t, s], i) => `<button class="big" type="button" data-act="q0:${s}"><b>${t}</b></button>`).join('');
+    else if (step === 1) h += `<div class="msg">${F}: «جميل. طيب هتسكّن بنتي فين؟»</div>` + opts.map((o, i) => `<button class="big" type="button" data-act="q1:${i}"><b>${o.name}</b><small>${o.lvl >= homeNeed(g.cls) ? '✅ مناسب لعيلتها' : '⚠️ أقل من مستواهم'}</small></button>`).join('')
+      + `<p class="note">${g.cls === 'rich' ? 'العيلة الغنية عايزة فيلا أو بنتهاوس.' : g.cls === 'mid' ? 'العيلة المتوسطة عايزة شقة كويسة: شقة في عمارتك، أو شقتك القديمة لو بقت بنتهاوس.' : 'العيلة البسيطة بيكفيها أي سكن محترم.'}</p>`;
+    else if (step === 2) h += `<div class="msg">${F}: «وربنا يكرمك، الحالة المادية عاملة إزاي؟»</div><div class="two"><div class="stat"><small>اللي تملكه تقريبًا</small><b>${fmt(worth)}</b></div><div class="stat"><small>${G_CLASS[g.cls].name} عايزة</small><b>${fmt(need)}+</b></div></div>
+      <button class="big" type="button" data-act="q2"><b>اتفضل يا عمي، ده وضعي بالظبط</b></button>`;
+    else if (step === 3 && neg) {
+      const row = (k, t, v, note) => `<div class="hr-row"><div class="hr-top"><b>${t}</b><span>${fmt(v)}</span></div>${note ? `<small class="when">${note}</small>` : ''}${k ? `<div class="actions"><button class="btn" type="button" data-act="hg:${k}" ${patience > 0 ? '' : 'disabled'}>نزّل 20%</button></div>` : ''}</div>`;
+      h += `<div class="msg">${F}: «على بركة الله. دي طلباتنا يا ابني:»</div>
+        ${row('shabka', g.cls === 'rich' ? '💎 الشبكة (طقم ألماظ)' : `💍 الشبكة (${Math.round(neg.shabka / GOLD_G)} جرام دهب عيار 21)`, neg.shabka, 'بتتدفع في الخطوبة')}
+        ${row('mahr', '💰 المهر', neg.mahr, 'بيتدفع يوم الفرح')}
+        ${row('qayma', '🛋️ القايمة (عفش وأجهزة البيت)', neg.qayma, 'بتتدفع قبل الفرح وبتجهّز البيت')}
+        ${row(null, '📜 المؤخّر', neg.muakhar, 'مكتوب في العقد بس، مش بيتدفع دلوقتي')}
+        <h3 class="sec">💒 الفرح</h3><div class="seg">${Object.entries(WEDDINGS).map(([k, W]) => `<button type="button" class="${neg.wed === k ? 'on' : ''}" data-act="wd:${k}" ${W.lv < WEDDINGS[D.wed].lv ? 'disabled' : ''}>${W.name}<br><small>${fmt(wedCost(k))}</small></button>`).join('')}</div>
+        <small class="when">${F} مش هيرضى بأقل من ${WEDDINGS[D.wed].name} · صبره عليك: ${'🟢'.repeat(patience)}${'⚪'.repeat(3 - patience)}</small>
+        <div class="two"><div class="stat acc"><small>دلوقتي (الشبكة)</small><b>${fmt(neg.shabka)}</b></div><div class="stat"><small>يوم الفرح (المهر والقايمة والفرح)</small><b>${fmt(neg.mahr + neg.qayma + wedCost(neg.wed))}</b></div></div>
+        <div class="actions"><button class="btn pri" type="button" data-act="deal" ${state.money >= neg.shabka ? '' : 'disabled'}>اتفقنا! نقرا الفاتحة 🤲</button><button class="btn" type="button" data-act="later">نأجّل</button></div>
+        ${state.money >= neg.shabka ? '' : `<p class="note">محتاج ${fmt(neg.shabka)} في المحفظة عشان الشبكة.</p>`}`;
+    }
+    b.innerHTML = h;
+    const fail = (why) => { res = `${F}: «${why}»`; gAdd(g, -5); L.visit = null; L.retry = state.day + 3; step = 9; save(); b.innerHTML = `<div class="msg">${res}</div><p class="note">تقدر تحاول تاني بعد 3 أيام لما تجهّز نفسك.</p>`; };
+    bind(b, {
+      q0: s => { score += s === 'serious' ? 2 : s === 'humble' ? (g.cls === 'rich' ? 1 : 2) : (g.cls === 'rich' ? 1 : -1); res = `${F}: «${s === 'bold' ? 'اممم… ربنا يزيدك' : 'كويس، الراجل اللي بيتعب على نفسه بيتعتمد عليه'}»`; step = 1; rerender(); },
+      q1: i => { home = opts[+i]; if (home.lvl < homeNeed(g.cls)) score -= 3; else score += 1; res = `${F}: «${home.lvl >= homeNeed(g.cls) ? 'تمام كده' : 'بنتي متعودة على أحسن من كده يا ابني'}»`; step = 2; rerender(); },
+      q2: () => {
+        if (worth < need * (score >= 2 ? 0.8 : 1)) return fail(`الحالة المادية لسه مش على قدنا يا ابني. شد حيلك وتعالى تاني`);
+        if (home.lvl < homeNeed(g.cls)) return fail('السكن ده مش مناسب لبنتي. شوف مكان أحسن وتعالى');
+        if (g.aff < 80) return fail('البنت لسه مش متأكدة… خدوا وقتكم');
+        neg = { ...D, att: 0 }; res = `${F}: «أنا موافق مبدئيًا 🙂»`; step = 3; rerender();
+      },
+      hg: k => {
+        const ch = 0.5 + (g.aff - 85) / 60 - neg.att * 0.1 - (g.cls === 'rich' ? 0.15 : 0); neg.att++;
+        if (Math.random() < ch) { neg[k] = Math.round(neg[k] * 0.8 / 1000) * 1000; res = `${F}: «ماشي عشان خاطر ${g.name} 🙂»`; }
+        else { patience--; res = `${F}: «لأ يا ابني، دي بنتي!» 😤`; if (patience <= 0) return fail('واضح إننا مش هنتفق. نتكلم بعدين'); }
+        rerender();
+      },
+      wd: k => { neg.wed = k; rerender(); },
+      later: () => { L.visit = null; L.retry = state.day + 2; res = ''; closePanel(); toast('اتفقتوا تتكلموا تاني بعدين', '', 3000); save(); },
+      deal: () => {
+        if (!Economy.spend(neg.shabka, `شبكة ${g.name}`)) return;
+        g.stage = 5; L.visit = null; L.fiance = { gid: g.id, mahr: neg.mahr, qayma: neg.qayma, wed: neg.wed, muakhar: neg.muakhar, shabka: neg.shabka, home, day: state.day + 10 };
+        gAdd(g, 10); toast(`💍 مبروك! اتخطبت لـ${g.name} · الفرح يوم ${state.day + 10}`, 'good', 7000); pushMsg(g, 'her', 'أنا أسعد واحدة في الدنيا 💍❤️');
+        updateHUD(); save(); closePanel();
+      },
+    });
+  });
+}
+function wedCost(k) { const own = state.con && Object.values(state.con.projects).some(p => p.done && p.type === 'hotel' && !(p.mk && p.mk.soldAll)); return Math.round(WEDDINGS[k].cost * (k === 'hotel' && own ? 0.5 : 1)); }
+function weddingPanel() {
+  const L = LIFE(), F = L.fiance; if (!F) return;
+  const g = girl(F.gid), total = F.mahr + F.qayma + wedCost(F.wed);
+  openPanel(`💒 فرح ${g.name}`, WEDDINGS[F.wed].name, b => {
+    b.innerHTML = `<div class="msg">🎶 الزفة شغالة والمعازيم وصلوا! ${g.name} لابسة الفستان الأبيض 👰</div>
+      <div class="two"><div class="stat"><small>المهر + القايمة + الفرح</small><b>${fmt(total)}</b></div><div class="stat"><small>هتسكنوا في</small><b style="font-size:14px">${F.home.name}</b></div></div>
+      <div class="actions"><button class="btn pri" type="button" data-act="wed" ${state.money >= total ? '' : 'disabled'}>ادفع واكتبوا الكتاب 💍</button></div>${state.money >= total ? '' : `<p class="note">محتاج ${fmt(total)} في المحفظة. حوّل من البنك وارجع.</p>`}`;
+    bind(b, {
+      wed: () => {
+        if (!Economy.spend(total, `فرح ${g.name}: مهر وقايمة و${WEDDINGS[F.wed].name}`)) return;
+        transition(() => { advanceTime(180); });
+        g.stage = 6; L.wife = { gid: g.id, since: state.day, muakhar: F.muakhar }; L.partner = null; L.fiance = null; L.date = null;
+        moveHome(F.home); toast(`👰 مبروك! انت و${g.name} اتجوزتوا ❤️ · بيتكم: ${F.home.name}`, 'good', 8000);
+        lifeHomeRefresh(); updateHUD(); save(); closePanel();
+      },
+    });
+  });
+}
+// ---------- البيت ----------
+function moveHome(o) {
+  const L = LIFE(); L.home = { kind: o.kind, n: o.n, name: o.name };
+  if ((o.kind === 'unit' || o.kind === 'villa') && state.con && state.con.projects[o.n]) { const M = pmk(state.con.projects[o.n]); M.sold++; M.self = (M.self || 0) + 1; }
+  if (o.kind === 'unit') state.homeLvl = Math.max(homeLvl(), 2);
+  if (o.kind === 'villa' || o.kind === 'pent') state.homeLvl = 3;
+  if (typeof refreshHome === 'function') refreshHome();
+}
+function homeDoor() {
+  const H = LIFE().home; if (!H || H.kind === 'old' || !state.con || !state.con.projects[H.n]) return null;
+  const p = state.con.projects[H.n], rs = bldRects(p), R = H.kind === 'villa' ? rs[rs.length - 1] : rs[0], f = blkFront(blk(H.n));
+  return { x: H.kind === 'villa' ? R.x : R.x + R.w / 2 - 2.5, z: R.z + f * (R.d / 2 + 1.4) };
+}
+function nearHomeDoor() { if (!inCapital()) return null; const d = homeDoor(); if (!d) return null; const p = state.player; return Math.hypot(p.x - d.x, p.z - d.z) < 2 ? { type: 'lhome', id: 'lhome', verb: `تدخل بيتك (${LIFE().home.name})`, act: 'ادخل' } : null; }
+// ---------- العيال ----------
+const K_BOYS = ['يوسف', 'عمر', 'آدم', 'مالك', 'ياسين', 'حمزة', 'زياد', 'علي', 'سليم', 'مصطفى'], K_GIRLS = ['ليلى', 'جنى', 'مريم', 'فريدة', 'هنا', 'كارما', 'سلمى', 'تاليا', 'نور', 'رقية'];
+const K_STAGES = [
+  { k: 'baby', from: 0, name: 'بيبي', opts: { std: ['لبن وحفاضات', 6000, 0] } },
+  { k: 'kg', from: 36, name: 'حضانة', opts: { std: ['حضانة عادية', 1500, 0.3], lang: ['حضانة لغات', 4000, 0.6], intl: ['حضانة دولي', 10000, 1] } },
+  { k: 'school', from: 72, name: 'مدرسة', opts: { gov: ['حكومي', 400, 0.25], exp: ['تجريبي', 1500, 0.5], lang: ['لغات خاص', 6000, 0.85], intl: ['دولي', 25000, 1.2] } },
+  { k: 'uni', from: 216, name: 'جامعة', opts: { gov: ['جامعة حكومية', 600, 0.6], priv: ['جامعة خاصة', 15000, 1], intl: ['جامعة أجنبية', 60000, 1.5] } },
+  { k: 'grad', from: 264, name: 'متخرّج', opts: { std: ['خلّص دراسته', 0, 0] } },
+];
+const KID_JOBS = { cns: 'مدير استيرادات الصين', mk: 'مدير السوبر ماركت', con: 'مهندس في المقاولات', shop: 'مدير محلك الكبير' };
+const kStage = k => [...K_STAGES].reverse().find(s => k.months >= s.from);
+const kAge = k => k.months < 12 ? `${k.months} شهر` : `${Math.floor(k.months / 12)} سنة`;
+const kOpt = k => { const s = kStage(k), sel = k.sel[s.k] || Object.keys(s.opts)[0]; return [sel, s.opts[sel]]; };
+const kCost = k => kOpt(k)[1][1] + (k.tutor && kStage(k).k === 'school' ? 3000 : 0);
+function kidBoost(job) { const L = state.life; if (!L) return 1; const k = L.kids.find(x => x.job === job); return k ? 1 + Math.min(0.4, k.skill / 250) : 1; }
+function familyDay() {
+  const L = state.life; if (!L || !L.wife) return;
+  if (!L.preg && L.wantKids && L.kids.length < 6 && state.day - L.wife.since >= 5 && Math.random() < 0.06) { L.preg = { due: state.day + 9 }; toast(`🤰 مبروك! ${girl(L.wife.gid).name} حامل · البيبي جاي بعد 9 أيام (9 شهور)`, 'good', 7000); }
+  if (L.preg && state.day >= L.preg.due) {
+    const boy = Math.random() < 0.5, used = new Set(L.kids.map(k => k.name)), pool = (boy ? K_BOYS : K_GIRLS).filter(n => !used.has(n));
+    const k = { id: (L.kseq = (L.kseq || 0) + 1), name: pick(pool.length ? pool : boy ? K_BOYS : K_GIRLS), boy, months: 0, sel: {}, tutor: false, skill: 0, happy: 80, job: null, born: state.day };
+    L.kids.push(k); L.preg = null; toast(`👶 ${boy ? 'ولد' : 'بنت'}! سمّيناه${boy ? '' : 'ا'} ${k.name} 🎉`, 'good', 7000); lifeHomeRefresh();
+  }
+  let cost = 0;
+  for (const k of L.kids) {
+    const before = kStage(k).k; k.months++;
+    const s = kStage(k);
+    if (s.k !== before) { toast(`🎒 ${k.name} ${s.k === 'grad' ? 'اتخرّج! تقدر تشغّله معاك من تطبيق العيلة' : `دخل ${s.name} · اختار نوعها من تطبيق العيلة`}`, 'good', 6000); lifeHomeRefresh(); }
+    const [, o] = kOpt(k), c = kCost(k); cost += c;
+    k.skill = clamp(k.skill + o[2] * 0.35 + (k.tutor && s.k === 'school' ? 0.12 : 0) + (k.playDay === state.day - 1 || k.playDay === state.day ? 0.25 : 0), 0, 100);
+    k.happy = clamp(k.happy - 2, 0, 100);
+  }
+  if (cost > 0 && !payWB(cost, `مصاريف العيال (مدارس وحضانة ولبن)`)) { for (const k of L.kids) k.happy = clamp(k.happy - 10, 0, 100); toast(`⚠️ مصاريف العيال (${fmt(cost)}) ماتدفعتش · العيال زعلانين`, 'bad', 5000); }
+}
+// ---------- تطبيق العيلة ----------
+function familyHTML() {
+  const L = LIFE(), p = L.partner && girl(L.partner), f = L.fiance && girl(L.fiance.gid), w = L.wife && girl(L.wife.gid);
+  let h = '';
+  if (w) h += `<div class="ip-card"><small>مراتك</small><b>👰 ${w.name}</b><small>متجوزين من يوم ${L.wife.since} · ساكنين في ${L.home.name || 'شقتك'}</small></div>`;
+  else if (f) h += `<div class="ip-card"><small>خطيبتك 💍</small><b>${f.name}</b><small>الفرح يوم ${L.fiance.day} · ${WEDDINGS[L.fiance.wed].name}</small></div>${state.day >= L.fiance.day && hourNow() >= 18 ? `<div class="actions"><button class="btn pri" type="button" data-act="fWed">💒 روح الفرح</button></div>` : `<p class="note">يوم الفرح هتدفع المهر والقايمة والفرح: ${fmt(L.fiance.mahr + L.fiance.qayma + wedCost(L.fiance.wed))}. الفرح بيبدأ من 6 بالليل.</p>`}`;
+  else if (p) h += `<div class="ip-card"><small>حبيبتك ❤️</small><b>${p.name}</b><small>${hearts(p.aff)} · ${moodTxt(p)}</small></div>`;
+  if (L.visit) { const g = girl(L.visit.gid); h += `<div class="hr-row"><div class="hr-top"><b>🏠 زيارة أهل ${g.name}</b><span>${absNow() >= L.visit.at - 60 ? 'دلوقتي' : `بعد ${fmtDur(L.visit.at - absNow())}`}</span></div>${absNow() >= L.visit.at - 60 ? '<div class="actions"><button class="btn pri" type="button" data-act="fVisit">روح بيت أهلها</button></div>' : ''}</div>`; }
+  if (L.date) { const g = girl(L.date.gid), V = VENUES[L.date.v]; h += `<div class="hr-row"><div class="hr-top"><b>🌹 خروجة مع ${g.name}</b><span>${L.date.state === 'with' ? 'ماشيين سوا' : absNow() >= L.date.at ? 'مستنياك دلوقتي!' : `بعد ${fmtDur(L.date.at - absNow())}`}</span></div><small class="when">${V.icon} ${V.name}</small></div>`; }
+  if (L.preg) h += `<div class="hr-row"><div class="hr-top"><b>🤰 البيبي جاي</b><span>بعد ${L.preg.due - state.day} يوم</span></div></div>`;
+  if (L.kids.length) {
+    h += `<h3 class="sec">👨‍👩‍👧 العيال</h3>` + L.kids.map(k => { const s = kStage(k), [sel] = kOpt(k); return `<div class="hr-row"><div class="hr-top"><b>${k.boy ? '👦' : '👧'} ${k.name}</b><span>${kAge(k)} · ${s.name}</span></div>
+      <small class="when">مصاريف ${fmt(kCost(k))} في اليوم (= الشهر) · شطارة ${Math.round(k.skill)}/100 · ${k.happy > 60 ? '😊 مبسوط' : k.happy > 30 ? '😐' : '😢 زعلان'}${k.job ? ` · شغال ${KID_JOBS[k.job]}` : ''}</small>
+      ${Object.keys(s.opts).length > 1 ? `<div class="chips">${Object.entries(s.opts).map(([ok, o]) => `<button type="button" class="chip ${sel === ok ? 'on' : ''}" data-act="kSel:${k.id}|${s.k}|${ok}">${o[0]} · ${fmt(o[1])}</button>`).join('')}</div>` : ''}
+      ${s.k === 'school' ? `<div class="chips"><button type="button" class="chip ${k.tutor ? 'on' : ''}" data-act="kTut:${k.id}">📚 دروس خصوصي (+3,000)</button></div>` : ''}
+      ${s.k === 'grad' ? `<div class="chips">${Object.entries(KID_JOBS).map(([j, t]) => `<button type="button" class="chip ${k.job === j ? 'on' : ''}" data-act="kJob:${k.id}|${j}">${t}</button>`).join('')}</div><small class="when">كل ما شطارته أعلى، الشغل اللي بيمسكه بيكسب أكتر (لحد +40%)</small>` : ''}</div>`; }).join('');
+  }
+  if (w) h += `<div class="hr-row"><div class="hr-top"><b>عايزين عيال؟</b><button class="btn" type="button" data-act="fKids">${L.wantKids ? '✅ أيوه' : '⏸️ لأ دلوقتي'}</button></div></div>`;
+  const known = activeGirls().filter(g => g.met && g.stage < 6);
+  if (known.length) h += `<h3 class="sec">💞 اللي تعرفهم</h3>` + known.map(g => `<div class="hr-row"><div class="hr-top"><b>${g.name} ${g.stage >= 4 ? '❤️' : ''}</b><span>${hearts(g.aff)}</span></div><small class="when">${G_STAGE[g.stage]} · ${G_SPOTS[g.spot].where} من ${G_SPOTS[g.spot].from} لـ ${G_SPOTS[g.spot].to} · ${moodTxt(g)}</small></div>`).join('');
+  const unk = activeGirls().filter(g => !g.met);
+  if (unk.length && !w) h += `<h3 class="sec">👀 ناس ممكن تتعرّف عليهم</h3>` + unk.map(g => `<small class="when">• ${G_SPOTS[g.spot].where} من ${G_SPOTS[g.spot].from} لـ ${G_SPOTS[g.spot].to}</small><br>`).join('');
+  const gifts = Object.entries(L.gifts).filter(([, n]) => n > 0);
+  if (gifts.length) h += `<h3 class="sec">🎁 هدايا في الشنطة</h3><p class="note">${gifts.map(([id, n]) => `${GIFTS[id].icon} ${GIFTS[id].name} × ${n}`).join(' · ')}</p>`;
+  return h || '<p class="note">لسه مفيش حد. اتمشى في المدينة: هتلاقي بنات قدام المكتبة ومكتب السفر والبنك، وفي المول والحديقة والمعرض.</p>';
+}
+function famActs() {
+  const L = LIFE();
+  return {
+    fWed: () => { closePanel(); weddingPanel(); }, fVisit: () => { closePanel(); fatherVisit(L.visit.gid); },
+    fKids: () => { L.wantKids = !L.wantKids; save(); rerender(); },
+    kSel: a => { const [id, st, ok] = a.split('|'), k = L.kids.find(x => x.id === +id); k.sel[st] = ok; save(); rerender(); },
+    kTut: id => { const k = L.kids.find(x => x.id === +id); k.tutor = !k.tutor; save(); rerender(); },
+    kJob: a => { const [id, j] = a.split('|'), k = L.kids.find(x => x.id === +id); for (const x of L.kids) if (x.job === j) x.job = null; k.job = j; toast(`💼 ${k.name} بقى ${KID_JOBS[j]}`, 'good'); save(); rerender(); },
+  };
+}
+// ---------- جوه البيت: مراتك والعيال ----------
+function lifeHomeRefresh() {
+  for (const m of lifeVis.home) scene && scene.remove(m.m);
+  lifeVis.home = [];
+  const L = state.life; if (!L || !L.wife || !scene) return;
+  const w = girl(L.wife.gid);
+  const put = (m, x, z, ry, kind, ref) => { m.position.set(x, 0, z); m.rotation.y = ry; scene.add(m); lifeVis.home.push({ m, x, z, kind, ref }); };
+  put(makePerson(w.look), HOME_IN.x + 3.2, HOME_IN.z - 1.6, -0.6, 'wife', w.id);
+  L.kids.forEach((k, i) => {
+    const s = kStage(k).k, x = HOME_IN.x - 2.5 + i * 1.3, z = HOME_IN.z + 1.6;
+    if (s === 'baby') { const cr = mergeGeos([pB(0.9, 0.5, 0.6, 0, 0.45, 0, '#f1ece0'), pB(0.95, 0.06, 0.65, 0, 0.72, 0, '#d8a878'), pB(0.35, 0.18, 0.25, 0, 0.78, 0, k.boy ? '#8ec5f0' : '#f5b7c8')]); put(cr, x, z, 0, 'kid', k.id); }
+    else put(makePerson({ fem: !k.boy, skin: w.look.skin, shirt: k.boy ? '#2e86c1' : '#e67e22', hair: w.look.hair, pants: '#2c3e50', kid: clamp(0.45 + k.months / 216 * 0.55, 0.45, 1), style: 'short', hairStyle: 'pony' }), x, z, 0.3, 'kid', k.id);
+  });
+}
+function lifeHomeTarget() {
+  const p = state.player;
+  for (const o of lifeVis.home) if (Math.hypot(p.x - o.x, p.z - o.z) < 1.4) {
+    if (o.kind === 'wife') return { type: 'hwife', id: 'hwife', verb: `تتكلم مع ${girl(o.ref).name}`, act: 'كلّمها' };
+    const k = LIFE().kids.find(x => x.id === o.ref); if (k) return { type: 'hkid', id: 'hkid' + k.id, kid: k.id, verb: `تلعب مع ${k.name} (${kAge(k)})`, act: 'العب' };
+  }
+  return null;
+}
+function wifePanel() {
+  const L = LIFE(), w = girl(L.wife.gid);
+  openPanel(`👰 ${w.name}`, `مراتك من يوم ${L.wife.since}`, b => {
+    b.innerHTML = `<div class="msg">«${pick(['حمد الله على السلامة ❤️ يومك كان عامل إيه؟', 'عملتلك أكلة بتحبها 😋', 'العيال كانوا بيسألوا عليك', 'وحشتني، اتأخرت ليه النهارده؟ 🙂'])}»</div>${familyHTML()}`;
+    bind(b, famActs());
+  });
+}
+function kidPlay(id) {
+  const k = LIFE().kids.find(x => x.id === id); if (!k) return;
+  if (k.playDay === state.day) { toast(`${k.name} تعب من اللعب النهارده 😄`); return; }
+  k.playDay = state.day; k.happy = clamp(k.happy + 18, 0, 100); advanceTime(30);
+  toast(`${kStage(k).k === 'baby' ? '👶' : '⚽'} لعبت مع ${k.name} · ${k.happy > 70 ? 'مبسوط جدًا 😄' : 'اتبسط 🙂'}`, 'good', 3500); save();
+}
+// ---------- الشكل في الشارع: البنات والخروجة ----------
+function lifeAnimate(dt) {
+  const L = state.life; if (!L || !scene) return;
+  const p = state.player, now = absNow();
+  for (const g of activeGirls()) {
+    const mode = girlHere(g), o = lifeVis.girls[g.id];
+    if (!mode) { if (o) { scene.remove(o.m); delete lifeVis.girls[g.id]; } continue; }
+    if (!o || o.tagKey !== (g.met ? g.name + g.stage : '?')) {
+      if (o) scene.remove(o.m);
+      const m = makePerson(g.look); if (g.met) m.add(nameTag(`${g.stage >= 4 ? '❤️ ' : ''}${g.name}`, 2.0));
+      const S = mode === 'venue' ? venueSpot(L.date.v) : G_SPOTS[g.spot];
+      lifeVis.girls[g.id] = { m, x: S.x, z: S.z, mode, tagKey: g.met ? g.name + g.stage : '?', ph: rand(0, 6) }; scene.add(m);
+    }
+    const v = lifeVis.girls[g.id];
+    if (v.mode !== mode) { v.mode = mode; if (mode === 'venue') { const S = venueSpot(L.date.v); v.x = S.x; v.z = S.z; } if (mode === 'spot') { const S = G_SPOTS[g.spot]; v.x = S.x; v.z = S.z; } }
+    let moving = false;
+    if (mode === 'comp') {   // ماشية جنبك
+      v.m.visible = !state.riding && !state.inside;
+      const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw), tx = p.x - fx * 0.9 + fz * 0.8, tz = p.z - fz * 0.9 - fx * 0.8, d = Math.hypot(tx - v.x, tz - v.z);
+      if (d > 20 || !v.m.visible) { v.x = tx; v.z = tz; }
+      else if (d > 0.25) { const s = Math.min(d, Math.max(1.4, d * 2.5) * dt); v.x += (tx - v.x) / d * s; v.z += (tz - v.z) / d * s; v.m.rotation.y = Math.atan2(tx - v.x, tz - v.z); moving = true; }
+      else v.m.rotation.y = Math.atan2(fx, fz);
+    } else {
+      v.m.visible = true;
+      const dd = Math.hypot(p.x - v.x, p.z - v.z);
+      if (dd < 4) v.m.rotation.y = Math.atan2(p.x - v.x, p.z - v.z); else v.m.rotation.y = Math.sin(now * 0.02 + v.ph) * 0.6 + Math.PI;
+    }
+    v.ph += dt * (moving ? 7 : 1.5);
+    const u = v.m.userData, sw = moving ? Math.sin(v.ph) * 0.5 : 0;
+    if (u.lL) { u.lL.rotation.x = sw; u.lR.rotation.x = -sw; u.aL.rotation.x = -sw * 0.6 + (moving ? 0 : Math.sin(v.ph) * 0.05); u.aR.rotation.x = sw * 0.6; }
+    v.m.position.set(v.x, v.x < STREET.x0 || v.z > MALL.zf ? 0.04 : groundY(v.z), v.z);
+  }
+  // البيت
+  const inHome = state.inside === 'home';
+  for (const o of lifeVis.home) o.m.visible = inHome;
+  if (inHome && lifeVis.home.length) for (const o of lifeVis.home) if (o.m.userData.lL) { const dd = Math.hypot(p.x - o.x, p.z - o.z); if (dd < 4) o.m.rotation.y = Math.atan2(p.x - o.x, p.z - o.z); }
+}
+// ---------- الأماكن الجديدة: كافيه ومطعم وسينما ومحلات هدايا في المول، وحديقة على الطريق الصحراوي ----------
+const GPARK = { x0: -132, x1: -74, z0: 17, z1: 56 };
+function buildLifePlaces() {
+  const P = [];
+  const titles = { 6: ['كافيه ليالي', '☕ قهوة وحلويات'], 7: ['مطعم الأمراء', '🕯️ عشا فاخر'], 8: ['سينما المول', '🎬 أحدث الأفلام'], 9: ['ورد وهدايا', '💐 ورد ودباديب وشوكولاتة'], 10: ['مجوهرات الماسة', '💎 دهب وألماظ وبرفانات'] };
+  for (const [n, [t, sub]] of Object.entries(titles)) {
+    const s = MALL_SHOPS.find(x => x.n === +n); if (!s) continue;
+    s.sub = sub; setMallShopTitle(+n, t); if (s.note) s.note.visible = false;
+    const cx = (s.x0 + s.x1) / 2, w = s.x1 - s.x0, z0 = s.z0 + 0.8, z1 = s.z1 - 1.2;
+    if (+n === 6 || +n === 7) for (let i = 0; i < 4; i++) { const x = s.x0 + 1.6 + (i % 2) * (w - 3.2), z = z0 + 1.5 + Math.floor(i / 2) * 2.6; P.push(pC(0.45, 0.05, x, 0.75, z, +n === 7 ? '#f4f1ea' : '#8e6b3e', 'y', 14), pC(0.06, 0.72, x, 0.37, z, '#3b3f45', 'y', 6)); for (const dx of [-0.75, 0.75]) P.push(pB(0.4, 0.45, 0.4, x + dx, 0.23, z, +n === 7 ? '#8e1b1b' : '#5b3a1e'), pB(0.4, 0.5, 0.06, x + dx * 1.2, 0.7, z, +n === 7 ? '#8e1b1b' : '#5b3a1e')); if (+n === 7) P.push(pC(0.025, 0.14, x, 0.85, z, '#f4b81c', 'y', 6)); }
+    if (+n === 6) P.push(pB(w - 2, 1.0, 0.7, cx, 0.5, z0 + 0.4, '#5b3a1e'), pB(w - 2, 0.06, 0.8, cx, 1.03, z0 + 0.4, '#d9cbb0'));
+    if (+n === 8) { P.push(pB(w - 1, 2.4, 0.1, cx, 2.2, z0 + 0.2, '#ecf0f1')); for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) P.push(pB(0.55, 0.5, 0.55, s.x0 + 1.4 + c * (w - 2.8) / 3, 0.25, z0 + 2.4 + r * 1.3, '#8e1b1b'), pB(0.55, 0.6, 0.1, s.x0 + 1.4 + c * (w - 2.8) / 3, 0.75, z0 + 2.65 + r * 1.3, '#8e1b1b')); }
+    if (+n === 9) for (let i = 0; i < 8; i++) { const x = s.x0 + 1.2 + (i % 4) * (w - 2.4) / 3, z = z0 + 0.8 + Math.floor(i / 4) * 2; P.push(pC(0.25, 0.5, x, 0.25, z, '#5d6772', 'y', 10)); const sg = new THREE.SphereGeometry(0.32, 8, 6); sg.translate(x, 0.7, z); P.push({ g: sg, c: ['#e74c3c', '#f5b7c8', '#f4d03f', '#ffffff'][i % 4] }); }
+    if (+n === 10) for (let i = 0; i < 3; i++) { const x = s.x0 + 1.6 + i * (w - 3.2) / 2; P.push(pB(1.6, 0.9, 0.7, x, 0.45, z0 + 1.5, '#2c3a47'), pB(1.6, 0.35, 0.7, x, 1.08, z0 + 1.5, '#cfe8f5')); for (let k = 0; k < 4; k++) P.push(pB(0.12, 0.05, 0.12, x - 0.5 + k * 0.33, 0.95, z0 + 1.5, '#f4b81c')); }
+  }
+  // الحديقة
+  const { x0, x1, z0, z1 } = GPARK, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+  P.push(pB(x1 - x0, 0.06, z1 - z0, cx, 0.03, cz, '#5c8d3e'));
+  P.push(pB(5, 0.07, z1 - z0 - 1, cx, 0.04, cz, '#d6cfc1'), pB(x1 - x0 - 2, 0.07, 4, cx, 0.04, cz, '#d6cfc1'));
+  P.push(pC(3, 0.6, cx, 0.35, cz, '#b8b0a0', 'y', 24), pC(2.7, 0.06, cx, 0.66, cz, '#4fa8e0', 'y', 24), pC(0.3, 1.8, cx, 1.2, cz, '#b8b0a0', 'y', 12), pC(1, 0.15, cx, 2.1, cz, '#4fa8e0', 'y', 16));
+  for (const [x, z] of [[cx + 5, cz + 3], [cx - 5, cz + 3], [cx + 5, cz - 3], [cx - 5, cz - 3], [cx + 3.5, cz + 8], [cx - 3.5, cz - 8]]) P.push(pB(2, 0.08, 0.5, x, 0.45, z, '#7a5230'), pB(2, 0.45, 0.06, x, 0.75, z + 0.25, '#7a5230'), pB(0.08, 0.45, 0.5, x - 0.85, 0.22, z, '#333'), pB(0.08, 0.45, 0.5, x + 0.85, 0.22, z, '#333'));
+  for (let i = 0; i < 26; i++) { const x = x0 + 3 + hash(i * 3.1) * (x1 - x0 - 6), z = z0 + 4 + hash(i * 7.7) * (z1 - z0 - 6); if (Math.abs(x - cx) < 5 || Math.abs(z - cz) < 4) continue; P.push(pC(0.18, 2.4, x, 1.2, z, '#6b4a2b', 'y', 8)); const sg = new THREE.SphereGeometry(1.6 + hash(i) * 0.8, 9, 7); sg.translate(x, 3.4, z); P.push({ g: sg, c: i % 3 ? '#3f7a3a' : '#4f9447' }); }
+  for (let x = x0 + 4; x < x1; x += 9) P.push(pB(0.12, 4, 0.12, x, 2, z0 + 1.2, '#2d2d2d'), pB(0.4, 0.15, 0.4, x, 4, z0 + 1.2, '#fff2c0'));
+  for (const x of [cx - 4, cx + 4]) P.push(pB(0.5, 4.2, 0.5, x, 2.1, z0 + 0.4, '#c9a66b'));
+  P.push(pB(8.5, 0.7, 0.5, cx, 4.4, z0 + 0.4, '#5b3a1e'));
+  scene.add(mergeGeos(P));
+  const sg = textPlane(7, 1.2, 840, 144, label('#2f5d50', '#ffffff', [['🌳 حديقة الحياة', 72, .5, '#f4b81c']])); sg.rotation.y = Math.PI; add(sg, cx, 4.4, z0 + 0.12, false, false);
+}
+const inPark = (x = state.player.x, z = state.player.z) => x > GPARK.x0 && x < GPARK.x1 && z > GPARK.z0 && z < GPARK.z1;
 
 // عندك مكان تنام فيه في الصين الليلة دي؟
 function cnHasBed() {
@@ -9833,12 +10562,13 @@ function currentTarget() {
   }
   if (state.inside && state.inside.startsWith('cn:')) return cnInTarget();
   if (inChina()) return cnTarget();
-  if (state.inside === 'home') return homeTarget();
+  if (state.inside === 'home') return lifeHomeTarget() || homeTarget();
   { const mt = mkTarget(); if (mt) return mt; }
   if (nearCharger() && state.motor) return CHARGER;
   if (nearDrop()) return DROP;
   if (nearPickup()) return PICKUP;
-  { const st = nearShowroom() || nearMatBay() || nearSite(); if (st) return st; }
+  { const gt = nearGirl(); if (gt) return gt; }
+  { const st = nearShowroom() || nearMatBay() || nearHomeDoor() || nearSite(); if (st) return st; }
   const pl = nearPlace(); if (pl) return pl;
   if (!state.riding && nearRanda()) return RANDA;
   if (!state.riding && nearSeller()) return SELLER;
@@ -9858,7 +10588,8 @@ function currentTarget() {
   if (nearDesk()) return DESK;
   { const sk = nearMkSeller(); if (sk) return { type: 'mkseller', id: 'mk' + sk, seller: sk, verb: `تبص على أسعار ${MK_SELLERS[sk].title}`, act: 'بص' }; }
   { const ct = nearCnsT(); if (ct) return ct; }
-  const ms = nearMallShop(); if (ms && (ms.n === 29 || ms.n === 30)) return { type: 'mallshop', id: ms.n, n: ms.n, verb: state.cns ? 'تدير محل استيرادات الصين' : `تبص على محل ${ms.n} (ينفع يبقى «استيرادات الصين»)`, act: state.cns ? 'إدارة' : 'بص' };
+  const ms = nearMallShop(); if (ms && VENUE_SHOPS[ms.n]) { const v = VENUE_SHOPS[ms.n]; return { type: 'venue', id: 'v' + ms.n, n: ms.n, verb: v === 'gifts' ? 'تشتري ورد وهدايا' : v === 'jewel' ? 'تبص على المجوهرات والبرفانات' : `تدخل ${VENUES[v].name}`, act: v === 'gifts' || v === 'jewel' ? 'اشتري' : 'ادخل' }; }
+  if (ms && (ms.n === 29 || ms.n === 30)) return { type: 'mallshop', id: ms.n, n: ms.n, verb: state.cns ? 'تدير محل استيرادات الصين' : `تبص على محل ${ms.n} (ينفع يبقى «استيرادات الصين»)`, act: state.cns ? 'إدارة' : 'بص' };
   if (ms) return MAT_TRADERS[ms.n] ? { type: 'mallshop', id: ms.n, n: ms.n, verb: `تشتري من ${MAT_TRADERS[ms.n].title}`, act: 'اشتري' } : { type: 'mallshop', id: ms.n, n: ms.n };
   return null;
 }
@@ -9871,6 +10602,11 @@ function interact() {
   if (t.type && t.type.startsWith('cn')) return cnAct(t);
   if (t.type && t.type.startsWith('mk')) return t.type === 'mkseller' ? mkSellerPanel(t.seller) : mkAct(t);
   if (t.type === 'showroom') return showroomPanel();
+  if (t.type === 'girl') return girlPanel(t.gid);
+  if (t.type === 'venue') { const v = VENUE_SHOPS[t.n]; return v === 'gifts' ? giftShopPanel(9) : v === 'jewel' ? giftShopPanel(10) : venueSoloPanel(v); }
+  if (t.type === 'lhome') { if (state.riding) toggleRide(); const q = state.player; state.homeFrom = { x: q.x, z: q.z, yaw: q.yaw + Math.PI }; return enterHome(); }
+  if (t.type === 'hwife') return wifePanel();
+  if (t.type === 'hkid') return kidPlay(t.kid);
   if (t.type === 'site') return sitePanel(t.n);
   if (t.type === 'teller') return bankPanel();
   if (t.type === 'exit') return exitBank();
@@ -10217,6 +10953,7 @@ function frame(t) {
 
 function start(data) {
   state = migrate((data && data.state) || load() || newState());
+  lifeInit();
   if (state.mgr && state.mgr.box > 0) { state.money += state.mgr.box; state.mgr.box = 0; }   // صندوق مدير المحل اتلغى: الفلوس بترجع المحفظة
   window.claude?.hot?.snapshot?.(() => ({ state }));
   if (state.ver && state.ver < GAME_VER) setTimeout(() => toast(`✨ اللعبة اتحدّثت للنسخة ${GAME_VER}`, 'good', 5000), 1500);
