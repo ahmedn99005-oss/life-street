@@ -1219,7 +1219,7 @@ function updateSky() {
   scene.background.copy(skyTmp); scene.fog.color.copy(skyTmp);
   { const w = inWest(); scene.fog.near = w ? 70 : 35; scene.fog.far = w ? 240 : 120; }   // الصحرا مفتوحة وبتشوف أبعد
   hemi.intensity = 0.78 - 0.58 * f;
-  if (inMall() || inBigShop() || inWarehouse() || inMarket()) hemi.intensity = Math.max(hemi.intensity, 0.85);   // المول منوّر بالليل
+  if (inMall() || inBigShop() || inWarehouse() || inMarket() || inConMall()) hemi.intensity = Math.max(hemi.intensity, 0.85);   // المول منوّر بالليل
   sun.intensity = 0.95 * (1 - f) + 0.12;
   sun.color.setHex(f > 0.85 ? 0x8ea6ff : 0xfff1d6);
   const a = clamp((h - 6) / 12, 0.08, 0.92) * Math.PI, p = state.player;
@@ -1907,7 +1907,7 @@ function applySettings() {
   }
   resize();
 }
-const GAME_VER = 77;   // رقم النسخة: بيظهر في الإعدادات وبيقولك لما اللعبة تتحدّث
+const GAME_VER = 78;   // رقم النسخة: بيظهر في الإعدادات وبيقولك لما اللعبة تتحدّث
 function openSettings() {
   if (panelOpen()) return;
   openPanel('الإعدادات', `ظبط اللعبة على جهازك · النسخة ${GAME_VER}`, body => {
@@ -8311,7 +8311,7 @@ function stockHTML(st) {
 function projHTML(p) {
   const C = CON(), T = BTYPES[p.type], s = conStage(p), pct = Math.round(conOverall(p) * 100), L = C.lands[p.n];
   let h = `<div class="stat acc"><small>بلوك ${p.n} · ${p.F} ${p.F > 2 ? 'أدوار' : 'دور'} × ${p.A.toLocaleString('en-US')} م² · ${FINISH[p.fin].name}</small><b>${T.icon} ${T.name} · ${p.U} ${T.unit}</b><div class="bar"><i style="width:${pct}%"></i></div><small>${pct}% من المشروع · التكلفة لحد دلوقتي ${fmt(conCost(p.n).total)} (كل حاجة بالأرض)</small></div>`;
-  if (p.done) return h + `<div class="msg">🎉 المبنى خلص يوم ${p.done}. قيمته السوقية التقديرية ${fmt(p.TA * conM2Value(p))} (${fmt(conM2Value(p))}/م²).</div>` + mktHTML(p) + costHTML(p.n);
+  if (p.done) return h + `<div class="msg">🎉 «${bName(p)}» خلص يوم ${p.done}. قيمته السوقية التقديرية ${fmt(p.TA * conM2Value(p))} (${fmt(conM2Value(p))}/م²).</div><div class="actions"><button class="btn" type="button" data-act="rename">✏️ غيّر اسم المبنى</button></div>` + mktHTML(p) + costHTML(p.n);
   h += `<h3 class="sec">المرحلة ${p.si + 1} من ${p.stages.length}: ${s.name}</h3><div class="bar"><i style="width:${Math.round(p.prog * 100)}%"></i></div>
     <small class="when">${p.last || (p.started ? '' : 'البنا لسه مابدأش')}</small>`;
   const miss = stageMissing(p);
@@ -8348,6 +8348,7 @@ function projActs(p) {
     start: () => { if (p.crew.e < 1) { toast('محتاج مهندس موقع واحد على الأقل', 'bad'); return; } p.started = state.day; p.paused = false; toast(`🏗️ البنا بدأ في بلوك ${p.n} · الشغل بيتحسب آخر كل يوم`, 'good', 4500); conRefresh(p.n); save(); rerender(); },
     pause: () => { p.paused = !p.paused; toast(p.paused ? 'وقفت الشغل · مفيش يوميات بتتدفع' : 'الشغل رجع', p.paused ? '' : 'good'); conRefresh(p.n); save(); rerender(); },
     ...mktActs(p),
+    rename: () => { const v = (window.prompt('اسم المبنى الجديد', bName(p)) || '').trim(); if (!v) return; p.name = v.slice(0, 28); conRefresh(p.n); save(); rerender(); },
     skip: t => { if (!p.started) { toast('ابدأ البنا الأول', 'bad'); return; } if (landStopped(p.n)) { toast('البنا واقف لحد ما تسدد أقساط الأرض', 'bad'); return; } if (p.crew.e < 1) { toast('محتاج مهندس موقع', 'bad'); return; }
       const r = skipWork(p, +t); toast(r.done ? `⏩ اتعمل ${r.done} يوم شغل زيادة${r.why ? ' · وقف: ' + r.why : ''}` : `ماينفعش: ${r.why}`, r.done ? 'good' : 'bad', 4000); conRefresh(p.n); save(); rerender(); },
   };
@@ -8385,11 +8386,19 @@ function nearSite() {
   const s = siteSpot(b.n), p = state.player, v = state.riding && state.vehicles[state.riding];
   // راكب عربية عليها حمولة: تنزّل في أي حتة جوه أرضك
   if (v && v.model && Object.keys(v.cargo || {}).length) return { type: 'site', id: 'siteU' + b.n, n: b.n, verb: `تنزّل الحمولة في موقع بلوك ${b.n}`, act: 'نزّل' };
+  const pj = state.con.projects[b.n];
+  if (pj && pj.done) {   // المبنى خلص: الإدارة عند المدخل (والمول من جوه عند الاستعلامات)
+    const R = bldRects(pj)[0], fr = blkFront(b), door = { x: R.x, z: R.z + fr * (R.d / 2 + 1.6) }, t2 = { type: 'site', id: 'bld' + b.n, n: b.n, verb: `تدير ${bName(pj)}`, act: 'إدارة' };
+    if (Math.hypot(p.x - door.x, p.z - door.z) < 3.2) return t2;
+    if (pj.type === 'mall') { const av = R.d / 2 - 0.3 - 6.5, desk = { x: R.x, z: R.z + fr * (av - 0.8) }; if (Math.hypot(p.x - desk.x, p.z - desk.z) < 2.2) return t2; }
+    return null;
+  }
   return Math.hypot(p.x - s.x, p.z - s.z) < (state.riding ? 9 : 4.5) ? { type: 'site', id: 'site' + b.n, n: b.n, verb: `تفتح موقع بلوك ${b.n}`, act: 'الموقع' } : null;
 }
 function sitePanel(n) {
   const C = CON(), b = blk(n);
-  openPanel(`موقع بلوك ${n}`, C.projects[n] ? `${BTYPES[C.projects[n].type].name} · كونتينر المهندس` : 'أرضك · كونتينر الموقع', body => {
+  const pd = C.projects[n] && C.projects[n].done ? C.projects[n] : null;
+  openPanel(pd ? bName(pd) : `موقع بلوك ${n}`, pd ? `${BTYPES[pd.type].icon} ${BTYPES[pd.type].name} · بلوك ${n} · الإدارة` : C.projects[n] ? `${BTYPES[C.projects[n].type].name} · كونتينر المهندس` : 'أرضك · كونتينر الموقع', body => {
     const p = C.projects[n], L = C.lands[n];
     const trucks = Object.entries(state.vehicles).filter(([k, v]) => v && v.model && !C.drivers[k] && Object.keys(v.cargo || {}).length && v.x >= b.x0 - 4 && v.x <= b.x1 + 4 && v.z >= b.z0 - 4 && v.z <= b.z1 + 4);
     let h = trucks.length ? `<h3 class="sec">عربيات عليها حمولة</h3>` + trucks.map(([k, v]) => `<div class="hr-row"><div class="hr-top"><b>${FLEET[v.model].name}</b><span>${fmtQ(cargoWt(v))} طن</span></div><small class="when">${Object.entries(v.cargo).map(([id, q]) => `${fmtQ(q)} ${MAT_ITEMS[id].unit} ${MAT_ITEMS[id].name}`).join('، ')}</small><div class="actions"><button class="btn pri" type="button" data-act="unl:${k}">نزّل الحمولة في الموقع</button></div></div>`).join('')
@@ -8430,17 +8439,176 @@ function bldRects(p) {
   const w = Math.min(42, Math.sqrt(p.A * 1.25)); return [{ x: cx, z: cz, w, d: p.A / w }];
 }
 function conRefreshAll() { if (!scene || !state.con) return; for (const n of Object.keys(state.con.lands)) conRefresh(+n); refreshBlockSigns(); }
+// ---------- المباني بعد ما تخلص: أسماء، تنسيق الموقع، دور أرضي حقيقي، ومول تدخله وتشوف محلاته ----------
+const BNAME = { res: 'أبراج النخيل', villa: 'كمبوند الياسمين', mall: 'مول العاصمة', office: 'برج الأعمال', hotel: 'فندق النيل', school: 'مدرسة المستقبل', hosp: 'مستشفى الشفاء', factory: 'مصانع الحياة' };
+const bName = p => p.name || BNAME[p.type] + (Object.values(CON().projects).filter(q => q.type === p.type).length > 1 ? ` ${p.n}` : '');
+const MALL_TENANTS = ['بيت الموضة', 'عالم الموبايل', 'كافيه الصحبة', 'حلويات السلطان', 'نظارات الرؤية', 'عطور الشرق', 'أحذية النجمة', 'دنيا الأطفال', 'مكتبة المعرفة', 'صيدلية الحياة', 'ساعات الزمن', 'إلكترونيات المستقبل', 'شاورما الريّس', 'بيتزا روما', 'صالون الأناقة', 'أدوات منزلية', 'سبورت لاين', 'ورد وهدايا', 'مجوهرات اللؤلؤ', 'بنك العاصمة', 'آيس كريم القطب', 'شنط وإكسسوارات', 'جيم الأبطال', 'سينما المول', 'كشري الحارة', 'لعب وهوايات', 'بصريات النور', 'كوزمتكس'];
+const MALL_SIGN_BG = ['#c0392b', '#1f5fa8', '#16a085', '#8e44ad', '#2c3a47', '#d35400', '#27ae60', '#5d4037'];
+const conShoppers = [];
+let CON_GLASS = null;
+function mergeUV(geos) {   // دمج لوحات اليفط في رسمة واحدة (بالـUV بتاعها)
+  const pos = [], nor = [], uv = [], idx = []; let off = 0;
+  for (const g of geos) {
+    const P = g.attributes.position, N = g.attributes.normal, U = g.attributes.uv;
+    for (let i = 0; i < P.count; i++) { pos.push(P.getX(i), P.getY(i), P.getZ(i)); nor.push(N.getX(i), N.getY(i), N.getZ(i)); uv.push(U.getX(i), U.getY(i)); }
+    for (let i = 0; i < g.index.count; i++) idx.push(g.index.getX(i) + off);
+    off += P.count; g.dispose();
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geo.setIndex(idx);
+  return geo;
+}
+function signMesh(SG) {   // كل يفط المحلات في صورة واحدة
+  const cols = 2, rows = Math.ceil(SG.length / cols), cw = 512, ch = 112, cv = document.createElement('canvas');
+  cv.width = cw * cols; cv.height = ch * rows;
+  const g2 = cv.getContext('2d');
+  SG.forEach((s, i) => { g2.save(); g2.translate((i % cols) * cw, Math.floor(i / cols) * ch); label(s.bg, '#ffffff', [[s.t, 50, .42], [s.sub || '', 26, .82, '#f4b81c']])(g2, cw, ch); g2.restore(); });
+  const tex = new THREE.CanvasTexture(cv); tex.encoding = THREE.sRGBEncoding; tex.anisotropy = 4;
+  const geos = SG.map((s, i) => {
+    const pg = new THREE.PlaneGeometry(s.w, s.h), c = i % cols, r = Math.floor(i / cols), u0 = c / cols, u1 = (c + 1) / cols, v1 = 1 - r / rows, v0 = 1 - (r + 1) / rows, U = pg.attributes.uv;
+    U.setXY(0, u0, v1); U.setXY(1, u1, v1); U.setXY(2, u0, v0); U.setXY(3, u1, v0);
+    pg.rotateY(s.ry); pg.translate(s.x, s.y, s.z); return pg;
+  });
+  const m = new THREE.Mesh(mergeUV(geos), new THREE.MeshBasicMaterial({ map: tex })); m.userData.ownTex = true; return m;
+}
+function nameSign(text, sub, w, x, y, z, ry, bg = '#2c3a47') {
+  const h = Math.max(1.1, w * 0.2), t = textPlane(w, h, 768, Math.round(768 * h / w), label(bg, '#ffffff', [[text, 96, .45, '#f4b81c'], [sub || '', 40, .84]]));
+  t.rotation.y = ry; t.position.set(x, y, z); t.userData.ownTex = true; return t;
+}
+// دور أرضي لمبنى عادي: واجهة إزاز ومدخل ومظلة
+function lobbyGround(c, R, wallC, glassOK, Hg) {
+  const { P, W, f, solid, p } = c, hw = R.w / 2, hd = R.d / 2, zF = R.z + f * hd, zB = R.z - f * hd;
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) P.push(pB(0.55, Hg, 0.55, R.x + sx * hw, Hg / 2, R.z + sz * hd, wallC));
+  if (p.type === 'factory') {   // مصنع: بوابتين صاج كبار ومكتب
+    P.push(pB(R.w, Hg, 0.3, R.x, Hg / 2, zF, wallC));
+    for (const ox of [-R.w * 0.25, R.w * 0.25]) { P.push(pB(6, 5.5, 0.12, R.x + ox, 2.75, zF + f * 0.2, '#7f8c8d')); for (let y = 0.5; y < 5.5; y += 0.5) P.push(pB(6, 0.05, 0.14, R.x + ox, y, zF + f * 0.21, '#5d6772')); }
+    W.push(pB(4, 1.4, 0.34, R.x, 2.2, zF, '#2c3e50'));
+  } else if (glassOK) {
+    W.push(pB(R.w - 0.6, Hg - 1.0, 0.12, R.x, 0.4 + (Hg - 1.0) / 2, zF, '#2c3e50'));
+    for (let x = R.x - hw + 2.5; x < R.x + hw - 1; x += 2.5) P.push(pB(0.1, Hg - 0.9, 0.2, x, 0.4 + (Hg - 0.9) / 2, zF, '#3b3f45'));
+    P.push(pB(R.w, 0.5, 0.32, R.x, Hg - 0.25, zF, wallC), pB(R.w, 0.4, 0.32, R.x, 0.2, zF, '#3b3f45'));
+  } else P.push(pB(R.w, Hg, 0.25, R.x, Hg / 2, zF, wallC));
+  if (p.type !== 'factory') P.push(pB(3.4, 2.9, 0.24, R.x, 1.45, zF + f * 0.06, '#1c2632'), pB(3.0, 2.6, 0.06, R.x, 1.35, zF + f * 0.2, '#5d7f99'));
+  P.push(pB(R.w, Hg, 0.25, R.x, Hg / 2, zB, wallC), pB(0.25, Hg, R.d, R.x - hw, Hg / 2, R.z, wallC), pB(0.25, Hg, R.d, R.x + hw, Hg / 2, R.z, wallC));
+  if (glassOK) W.push(pB(R.w * 0.8, 1.4, 0.3, R.x, Math.min(2.2, Hg - 1), zB, '#2c3e50'), pB(0.3, 1.4, R.d * 0.8, R.x - hw, Math.min(2.2, Hg - 1), R.z, '#2c3e50'), pB(0.3, 1.4, R.d * 0.8, R.x + hw, Math.min(2.2, Hg - 1), R.z, '#2c3e50'));
+  P.push(pB(R.w + 0.3, 0.3, R.d + 0.3, R.x, Hg - 0.15, R.z, '#a4a9ab'));
+  if (p.type !== 'factory') P.push(pB(6.5, 0.25, 3.2, R.x, Hg - 0.8, zF + f * 1.6, '#2c3a47'), pB(0.15, Hg - 0.8, 0.15, R.x - 3, (Hg - 0.8) / 2, zF + f * 3.1, '#3b3f45'), pB(0.15, Hg - 0.8, 0.15, R.x + 3, (Hg - 0.8) / 2, zF + f * 3.1, '#3b3f45'));
+  solid(R.x - hw - 0.3, R.x + hw + 0.3, R.z - hd - 0.3, R.z + hd + 0.3);
+}
+// المول: دور أرضي تدخله، محلات حوالين صالة فيها نافورة واستعلامات
+function mallGround(c, R, Hg) {
+  const { P, W, GL, SG, f, solid, T, p, n } = c, hw = R.w / 2, hd = R.d / 2, t = 0.3, sd = 6.5, gapF = 4, gapB = 3, clad = T.color;
+  const X = u => R.x + u, Zv = v => R.z + f * v;
+  const lb = (u0, u1, v0, v1, y0, y1, col, list = P) => list.push(pB(Math.abs(u1 - u0), y1 - y0, Math.abs(v1 - v0), X((u0 + u1) / 2), (y0 + y1) / 2, Zv((v0 + v1) / 2), col));
+  const ls = (u0, u1, v0, v1) => { const za = Zv(v0), zb = Zv(v1); solid(X(Math.min(u0, u1)), X(Math.max(u0, u1)), Math.min(za, zb), Math.max(za, zb)); };
+  // الحيطة الخارجية بمدخل قدام ومدخل ورا
+  for (const [u0, u1] of [[-hw, -gapF], [gapF, hw]]) { lb(u0, u1, hd - t, hd, 0, Hg, clad); ls(u0, u1, hd - t, hd); W.push(pB(Math.abs(u1 - u0) - 2, 2.6, 0.05, X((u0 + u1) / 2), 1.9, Zv(hd + 0.03), '#2c3e50')); }
+  for (const [u0, u1] of [[-hw, -gapB], [gapB, hw]]) { lb(u0, u1, -hd, -hd + t, 0, Hg, clad); ls(u0, u1, -hd, -hd + t); }
+  lb(-hw, -hw + t, -hd, hd, 0, Hg, clad); ls(-hw, -hw + t, -hd, hd);
+  lb(hw - t, hw, -hd, hd, 0, Hg, clad); ls(hw - t, hw, -hd, hd);
+  lb(-gapF, gapF, hd - t, hd, Hg - 1.3, Hg, clad); lb(-gapB, gapB, -hd, -hd + t, Hg - 1.3, Hg, clad);
+  for (const s of [-1, 1]) { lb(s * gapF - 0.2, s * gapF + 0.2, hd - t - 0.1, hd + 0.15, 0, Hg - 1.3, '#3b3f45'); lb(s * (gapF - 0.9), s * (gapF - 0.9) + s * 0.05, hd - t - 1.2, hd - t, 0.05, 2.9, '#bfe3f0', GL); }
+  lb(-gapF - 1, gapF + 1, hd, hd + 3.2, Hg - 1.3, Hg - 1.05, '#2c3a47');   // مظلة المدخل
+  // الأرضية والسقف ونور السقف
+  lb(-hw + t, hw - t, -hd + t, hd - t, 0, 0.06, '#e8e4da');
+  lb(-hw, hw, -hd, hd, Hg - 0.3, Hg, '#f3efe6');
+  // المحلات
+  const occ = p.mk ? (p.mk.sold + rentedN(p)) / p.U : 0, shops = [];
+  const split = (a0, a1) => { const L = a1 - a0, k = Math.max(1, Math.round(L / 6)); return Array.from({ length: k }, (_, i) => [a0 + i * L / k, a0 + (i + 1) * L / k]); };
+  for (const [a0, a1] of [[-hw + t, -gapF], [gapF, hw - t]]) for (const [u0, u1] of split(a0, a1)) shops.push({ u0, u1, v0: hd - t - sd, v1: hd - t, open: 'v0' });
+  for (const [a0, a1] of [[-hw + t, -gapB], [gapB, hw - t]]) for (const [u0, u1] of split(a0, a1)) shops.push({ u0, u1, v0: -hd + t, v1: -hd + t + sd, open: 'v1' });
+  for (const [v0, v1] of split(-hd + t + sd, hd - t - sd)) { shops.push({ u0: -hw + t, u1: -hw + t + sd, v0, v1, open: 'u1' }); shops.push({ u0: hw - t - sd, u1: hw - t, v0, v1, open: 'u0' }); }
+  const nOcc = Math.round(shops.length * Math.min(1, occ)), order = shops.map((_, i) => i).sort((a, b) => hash(a * 7.3 + n) - hash(b * 7.3 + n));
+  shops.forEach((s, i) => {
+    const busy = order.indexOf(i) < nOcc, um = (s.u0 + s.u1) / 2, vm = (s.v0 + s.v1) / 2, rowShop = s.open[0] === 'v';
+    // حيطان بين المحلات
+    if (rowShop) { lb(s.u0, s.u0 + 0.15, s.v0, s.v1, 0, Hg - 0.3, '#ecf0f1'); lb(s.u1 - 0.15, s.u1, s.v0, s.v1, 0, Hg - 0.3, '#ecf0f1'); }
+    else { lb(s.u0, s.u1, s.v0, s.v0 + 0.15, 0, Hg - 0.3, '#ecf0f1'); lb(s.u0, s.u1, s.v1 - 0.15, s.v1, 0, Hg - 0.3, '#ecf0f1'); }
+    lb(s.u0 + 0.15, s.u1 - 0.15, s.v0 + 0.15, s.v1 - 0.15, 0.06, 0.08, busy ? '#d9c7a8' : '#cfc8b8');
+    // الواجهة الإزاز واليافطة
+    const ov = s.open === 'v0' ? s.v0 : s.v1, ou = s.open === 'u0' ? s.u0 : s.u1, dirIn = s.open === 'v0' || s.open === 'u0' ? -1 : 1;
+    if (rowShop) { lb(s.u0 + 0.15, s.u1 - 0.15, ov - 0.03, ov + 0.03, 0.08, 3.2, '#bfe3f0', GL); lb(s.u0, s.u1, ov - 0.12, ov + 0.12, 3.2, Hg - 0.3, '#2c3a47'); lb(s.u0, s.u1, ov - 0.08, ov + 0.08, 0.06, 0.18, '#3b3f45'); }
+    else { lb(ou - 0.03, ou + 0.03, s.v0 + 0.15, s.v1 - 0.15, 0.08, 3.2, '#bfe3f0', GL); lb(ou - 0.12, ou + 0.12, s.v0, s.v1, 3.2, Hg - 0.3, '#2c3a47'); lb(ou - 0.08, ou + 0.08, s.v0, s.v1, 0.06, 0.18, '#3b3f45'); }
+    const nm = busy ? MALL_TENANTS[(i * 5 + n) % MALL_TENANTS.length] : 'للإيجار', len = rowShop ? s.u1 - s.u0 : s.v1 - s.v0, wy = (3.2 + Hg - 0.3) / 2;
+    const sx = rowShop ? X(um) : X(ou + dirIn * 0.13), sz = rowShop ? Zv(ov + dirIn * 0.13) : Zv(vm), face = rowShop ? f * dirIn : 0;
+    SG.push({ t: nm, sub: busy ? '' : `محل ${i + 1} · كلّم إدارة المول`, bg: busy ? MALL_SIGN_BG[(i + n) % MALL_SIGN_BG.length] : '#7f8c8d', w: len - 0.6, h: Math.min(0.95, Hg - 3.6), x: sx, y: wy, z: sz, ry: rowShop ? (face > 0 ? 0 : Math.PI) : (dirIn > 0 ? Math.PI / 2 : -Math.PI / 2) });
+    if (busy) {   // رفوف وكاونتر ونور جوه المحل
+      const col = MALL_SIGN_BG[(i * 3 + n) % MALL_SIGN_BG.length];
+      if (rowShop) { const bv = s.open === 'v0' ? s.v1 - 0.6 : s.v0 + 0.6; lb(s.u0 + 0.5, s.u1 - 0.5, bv - 0.25, bv + 0.25, 0.08, 2.2, '#8e6b3e'); for (let k = 0; k < 3; k++) lb(s.u0 + 0.7, s.u1 - 0.7, bv - 0.3 * dirIn * -1 - 0.15, bv - 0.3 * dirIn * -1 + 0.15, 0.5 + k * 0.6, 0.85 + k * 0.6, k % 2 ? col : '#ecf0f1'); lb(um - 1, um + 1, ov - dirIn * 1.6 - 0.35, ov - dirIn * 1.6 + 0.35, 0.08, 1.0, '#5b3a1e'); }
+      else { const bu = s.open === 'u0' ? s.u1 - 0.6 : s.u0 + 0.6; lb(bu - 0.25, bu + 0.25, s.v0 + 0.5, s.v1 - 0.5, 0.08, 2.2, '#8e6b3e'); for (let k = 0; k < 3; k++) lb(bu - 0.4 * -dirIn - 0.15, bu - 0.4 * -dirIn + 0.15, s.v0 + 0.7, s.v1 - 0.7, 0.5 + k * 0.6, 0.85 + k * 0.6, k % 2 ? col : '#ecf0f1'); lb(ou + dirIn * -1.6 - 0.35, ou + dirIn * -1.6 + 0.35, vm - 1, vm + 1, 0.08, 1.0, '#5b3a1e'); }
+      lb(s.u0 + 1, s.u1 - 1, s.v0 + 1, s.v1 - 1, Hg - 0.34, Hg - 0.31, '#fff8e0', W);
+    }
+    ls(s.u0, s.u1, s.v0, s.v1);
+  });
+  // الصالة: نافورة وكراسي وزرع ونور
+  const au = hw - t - sd, av = hd - t - sd;
+  P.push(pC(2.3, 0.6, X(0), 0.3, Zv(0), '#b8b0a0', 'y', 24), pC(2.05, 0.05, X(0), 0.62, Zv(0), '#4fa8e0', 'y', 24), pC(0.25, 1.6, X(0), 0.9, Zv(0), '#b8b0a0', 'y', 12), pC(0.8, 0.15, X(0), 1.7, Zv(0), '#4fa8e0', 'y', 16));
+  ls(-2.4, 2.4, -2.4, 2.4);
+  for (const [bu, bv, rot] of [[0, 4.2, 0], [0, -4.2, 0], [5.5, 0, 1], [-5.5, 0, 1]]) { if (rot) lb(bu - 0.25, bu + 0.25, bv - 1, bv + 1, 0.4, 0.5, '#7a5230'); else lb(bu - 1, bu + 1, bv - 0.25, bv + 0.25, 0.4, 0.5, '#7a5230'); }
+  for (const su of [-1, 1]) for (const sv of [-1, 1]) { const u = su * (au - 1.2), v = sv * (av - 1.2); lb(u - 0.5, u + 0.5, v - 0.5, v + 0.5, 0.06, 0.7, '#8f8a80'); const sg = new THREE.SphereGeometry(0.8, 10, 6); sg.translate(X(u), 1.4, Zv(v)); P.push({ g: sg, c: '#3f7a3a' }); }
+  for (let u = -au + 3; u < au - 1; u += 5) for (let v = -av + 3; v < av - 1; v += 5) lb(u - 0.8, u + 0.8, v - 0.8, v + 0.8, Hg - 0.34, Hg - 0.31, '#fff8e0', W);
+  // الاستعلامات وإدارة المول جوه المدخل
+  const dv = av - 2.4;
+  lb(-1.6, 1.6, dv - 0.5, dv + 0.5, 0.06, 1.1, '#2c3a47'); lb(-1.7, 1.7, dv - 0.6, dv + 0.6, 1.1, 1.16, '#ecf0f1'); ls(-1.6, 1.6, dv - 0.5, dv + 0.5);
+  SG.push({ t: 'استعلامات', sub: 'إدارة المول', bg: '#1f5fa8', w: 2.8, h: 0.6, x: X(0), y: 2.2, z: Zv(dv + 0.62), ry: f > 0 ? 0 : Math.PI });
+  c.mallDesk = { x: X(0), z: Zv(dv + 1.6) };
+  // زباين بيلفوا في الصالة
+  const cnt = clamp(Math.round(2 + occ * 12), 2, 14);
+  for (let i = 0; i < cnt; i++) { const m = bakePerson(makePerson({ shirt: pick(SHIRTS), skin: pick(SKINS), hair: pick(['#2b1b10', '#111', '#5a3a1a']), pants: pick(['#2c3e50', '#3b3b3b', '#1f3a5f']), scarf: Math.random() < 0.35 })); const u = rand(-au + 1, au - 1), v = rand(-av + 1, av - 1); m.position.set(X(u), 0.06, Zv(v)); scene.add(m); conShoppers.push({ n, m, R, f, au: au - 0.8, av: av - 0.8, u, v, tu: u, tv: v, w: rand(0, 3), ph: 0 }); }
+}
+// تنسيق الأرض حوالين المبنى: بلاط، جنينة ونخل، باركينج بعربيات، أعمدة نور، ويافطة
+function conLandscape(c) {
+  const { P, W, g, solid, b, f, fz, cx, cz0, p, n } = c, rects = bldRects(p);
+  const box = (x0, x1, z0, z1, y0, y1, col, list = P) => list.push(pB(Math.abs(x1 - x0), y1 - y0, Math.abs(z1 - z0), (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, col));
+  const Zv = v => cz0 + f * v;
+  box(b.x0 + 0.2, b.x1 - 0.2, b.z0 + 0.2, b.z1 - 0.2, 0, 0.03, '#cfc8b8');
+  for (const [x0, x1, z0, z1] of [[b.x0, b.x1, b.z0, b.z0 + 0.25], [b.x0, b.x1, b.z1 - 0.25, b.z1], [b.x0, b.x0 + 0.25, b.z0, b.z1], [b.x1 - 0.25, b.x1, b.z0, b.z1]]) box(x0, x1, z0, z1, 0, 0.16, '#8f8a80');
+  const front = Math.max(...rects.map(R => f * (R.z - cz0) + R.d / 2)), back = Math.max(...rects.map(R => -f * (R.z - cz0) + R.d / 2)), xmin = Math.min(...rects.map(R => R.x - R.w / 2)), xmax = Math.max(...rects.map(R => R.x + R.w / 2));
+  const palm = (x, z) => { P.push(pC(0.17, 4.6, x, 2.3, z, '#8b6b45', 'y', 8)); const sg = new THREE.SphereGeometry(1.5, 9, 5); sg.scale(1, 0.42, 1); sg.translate(x, 4.7, z); P.push({ g: sg, c: '#3f7a3a' }); };
+  // جنينة ورا وعلى الجناب
+  if (25 - back > 2.5) { const v0 = -24.6, v1 = -back - 1; box(b.x0 + 0.6, b.x1 - 0.6, Zv(v0), Zv(v1), 0, 0.12, '#5c8d3e'); for (let x = b.x0 + 3; x < b.x1 - 2; x += 7) palm(x, Zv((v0 + v1) / 2)); }
+  for (const [x0, x1] of [[b.x0 + 0.6, xmin - 1.2], [xmax + 1.2, b.x1 - 0.6]]) if (x1 - x0 > 1.5) { box(x0, x1, Zv(-back), Zv(front), 0, 0.12, '#5c8d3e'); for (let v = -back + 3; v < front - 1; v += 7) palm((x0 + x1) / 2, Zv(v)); }
+  // قدام: ممشى للمدخل وباركينج
+  const fd = 25 - front;
+  box(cx - 3, cx + 3, Zv(front), Zv(24.8), 0, 0.05, '#bdb6a8');
+  if (fd >= 8) {
+    const v0 = front + 1.5, v1 = v0 + 5;
+    for (const [x0, x1] of [[b.x0 + 1, cx - 3.8], [cx + 3.8, b.x1 - 1]]) {
+      box(x0, x1, Zv(front + 0.8), Zv(24.4), 0, 0.045, '#3a3e45');
+      let k = 0;
+      for (let x = x0 + 0.1; x + 2.6 <= x1; x += 2.6, k++) {
+        box(x, x + 0.08, Zv(v0), Zv(v1), 0, 0.05, '#ecf0f1');
+        if (hash(k * 3.7 + x * 0.13 + n) < 0.55) {   // عربية راكنة
+          const xc = x + 1.3, zc = Zv((v0 + v1) / 2), col = CAR_COLORS[Math.floor(hash(k + n * 2.1) * CAR_COLORS.length)];
+          P.push(pB(1.8, 0.7, 4.2, xc, 0.55, zc, col), pB(1.6, 0.62, 2.2, xc, 1.2, zc - f * 0.2, '#2c3e50'), pB(1.62, 0.06, 2.0, xc, 1.53, zc - f * 0.2, col));
+          for (const sx of [-1, 1]) for (const sz of [-1.35, 1.35]) P.push(pC(0.33, 0.24, xc + sx * 0.85, 0.33, zc + sz, '#151515', 'x', 10));
+          solid(xc - 1, xc + 1, zc - 2.2, zc + 2.2);
+        }
+      }
+    }
+  } else { box(b.x0 + 1, cx - 3.5, Zv(front + 0.8), Zv(24.4), 0, 0.12, '#5c8d3e'); box(cx + 3.5, b.x1 - 1, Zv(front + 0.8), Zv(24.4), 0, 0.12, '#5c8d3e'); }
+  // أعمدة نور قدام
+  for (let x = b.x0 + 4; x < b.x1 - 2; x += 10) { if (Math.abs(x - cx) < 4) continue; P.push(pB(0.14, 5, 0.14, x, 2.5, Zv(24.2), '#2d2d2d'), pB(0.1, 0.1, 1.2, x, 4.95, Zv(23.7), '#2d2d2d')); W.push(pB(0.4, 0.14, 0.5, x, 4.85, Zv(23.2), '#fff2c0')); }
+  // يافطة باسم المبنى على الناصية
+  const mx = b.x0 + 7;   // الناحية التانية من يافطة رقم البلوك
+  P.push(pB(5.6, 0.6, 0.8, mx, 0.3, Zv(23.4), '#5b3a1e'), pB(0.2, 2.2, 0.2, mx - 2.4, 1.1, Zv(23.4), '#3b3f45'), pB(0.2, 2.2, 0.2, mx + 2.4, 1.1, Zv(23.4), '#3b3f45'));
+  g.add(nameSign(bName(p), `${BTYPES[p.type].icon} ${BTYPES[p.type].name} · بلوك ${n}`, 5.2, mx, 1.75, Zv(23.4) + f * 0.12, f > 0 ? 0 : Math.PI));
+}
+const inConMall = () => { if (!inCapital() || !state.con) return false; const bk = capBlockAt(); const p = bk && state.con.projects[bk.n]; if (!p || !p.done || p.type !== 'mall') return false; const R = bldRects(p)[0], q = state.player; return Math.abs(q.x - R.x) < R.w / 2 && Math.abs(q.z - R.z) < R.d / 2; };
 function conRefresh(n) {
   if (!scene) return;
   const old = conGroups[n];
-  if (old) { scene.remove(old); old.traverse(o => { if (o.geometry) o.geometry.dispose(); }); delete conGroups[n]; }
+  if (old) { scene.remove(old); old.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.userData.ownTex && o.material && o.material.map) { o.material.map.dispose(); o.material.dispose(); } }); delete conGroups[n]; }
   for (let i = conWorkers.length - 1; i >= 0; i--) if (conWorkers[i].n === n) { scene.remove(conWorkers[i].m); conWorkers.splice(i, 1); }
+  for (let i = conShoppers.length - 1; i >= 0; i--) if (conShoppers[i].n === n) { dropMesh(conShoppers[i].m); conShoppers.splice(i, 1); }
   for (let i = conCranes.length - 1; i >= 0; i--) if (conCranes[i].n === n) conCranes.splice(i, 1);
   const C = state.con, L = C && C.lands[n];
   CON_SOLIDS = CON_SOLIDS.filter(s => s.n !== n);
   if (!L) return;
-  const b = blk(n), f = blkFront(b), fz = f > 0 ? b.z1 : b.z0, bz = f > 0 ? b.z0 : b.z1, cx = (b.x0 + b.x1) / 2, P = [], W = [], g = new THREE.Group();
+  const b = blk(n), f = blkFront(b), fz = f > 0 ? b.z1 : b.z0, bz = f > 0 ? b.z0 : b.z1, cx = (b.x0 + b.x1) / 2, P = [], W = [], GL = [], SG = [], g = new THREE.Group();
   const solid = (x0, x1, z0, z1) => CON_SOLIDS.push({ n, x0: Math.min(x0, x1), x1: Math.max(x0, x1), z0: Math.min(z0, z1), z1: Math.max(z0, z1) });
+  const p = C.projects[n], done = !!(p && p.done), cz0 = (b.z0 + b.z1) / 2;
+  if (!done) {   // الموقع وهو شغال: سور وكونتينر وخامات (بيتشالوا لما المبنى يخلص)
   // سور الموقع بفتحة بوابة 10 م في النص
   const FH = 2.2, fenceC = '#d5d8dc', stripe = '#1f5fa8', zi = fz - f * 0.4, zb = bz + f * 0.4, xi0 = b.x0 + 0.4, xi1 = b.x1 - 0.4;
   const wall = (x0, z0, x1, z1) => { const w = Math.abs(x1 - x0) || 0.12, d = Math.abs(z1 - z0) || 0.12, x = (x0 + x1) / 2, z = (z0 + z1) / 2; P.push(pB(w, FH, d, x, FH / 2, z, fenceC), pB(w + 0.01, 0.25, d + 0.01, x, FH - 0.3, z, stripe)); solid(x0 - 0.1, x1 + 0.1, z0 - 0.1, z1 + 0.1); };
@@ -8457,7 +8625,6 @@ function conRefresh(n) {
     sg.rotation.y = f > 0 ? 0 : Math.PI; sg.position.set(xa - 0.8, 2.3, fz - f * 0.75); g.add(sg);
     P.push(pB(0.12, 2.3, 0.12, xa - 0.8, 1.15, fz - f * 0.8, '#555')); }
   // الخامات المتشونة في الموقع: شمال البوابة ويمينها لحد الكونتينر، والممر قدام البوابة فاضي
-  const p = C.projects[n], cz0 = (b.z0 + b.z1) / 2;
   const frontEdge = p ? Math.max(...bldRects(p).map(R => f * (R.z - cz0) + R.d / 2)) : 12, D = clamp(25 - frontEdge - 1.2, 6, 18), Zd = t => fz - f * (0.6 + t * D);
   const st = L.stock;
   const steel = ['rebar10', 'rebar12', 'rebar16', 'rebar25'].reduce((a, k) => a + (st[k] || 0), 0);
@@ -8472,20 +8639,22 @@ function conRefresh(n) {
   const cone = (q, c) => { const r = clamp(Math.cbrt(q) * 0.8, 0.6, 1.6), gg = new THREE.ConeGeometry(r, r * 0.9, 12); gg.translate(ox + r, r * 0.45, Zd(0.3)); P.push({ g: gg, c }); ox += r * 2 + 0.4; };
   for (const [ids, c] of [[['sandC', 'sandF'], '#c29550'], [['fill'], '#d8b67a'], [['gravel1', 'gravel2'], '#6e6a63']]) { const q = ids.reduce((a, k) => a + (st[k] || 0), 0); if (q > 0.05) cone(q, c); }
   pal(Math.min(15, Math.ceil(availAlt(st, 'brick') / 2)), '#b5523b', 0.9, cx + 6.2, Zd(0.75));
+  } else conLandscape({ n, b, f, fz, cx, cz0, p, P, W, g, solid });
   // المبنى
   if (p) {
     const T = BTYPES[p.type], fh = T.fh, ex = stP(p, 'excav'), fo = stP(p, 'found'), br = stP(p, 'bricks'), pl = stP(p, 'plaster'), fi = stP(p, 'finish');
-    const conc = '#a4a9ab', brick = '#a8553f', plas = '#d8cfc0', fin = T.color;
-    for (const R of bldRects(p)) {
+    const conc = '#a4a9ab', brick = '#a8553f', plas = '#d8cfc0', fin = T.color, finN = FINISH[p.fin].n, doneWall = finN >= 6 ? fin : finN >= 5 ? plas : brick, Hg = 0.8 + fh, rects = bldRects(p);
+    for (const R of rects) {
       const hw = R.w / 2, hd = R.d / 2;
       if (ex > 0 && fo < 1) P.push(pB(R.w * Math.max(0.15, ex), 0.02, R.d, R.x - hw + R.w * Math.max(0.15, ex) / 2, 0.012, R.z, '#8a6a3e'));
-      if (fo > 0) { P.push(pB(R.w + 1, 0.8 * fo, R.d + 1, R.x, 0.4 * fo, R.z, '#8f9496')); solid(R.x - hw - 0.5, R.x + hw + 0.5, R.z - hd - 0.5, R.z + hd + 0.5); }
+      if (fo > 0 && !done) { P.push(pB(R.w + 1, 0.8 * fo, R.d + 1, R.x, 0.4 * fo, R.z, '#8f9496')); solid(R.x - hw - 0.5, R.x + hw + 0.5, R.z - hd - 0.5, R.z + hd + 0.5); }
+      if (done) { if (p.type === 'mall' && R === rects[0]) mallGround({ P, W, GL, SG, f, solid, T, p, n }, R, Hg); else lobbyGround({ P, W, f, solid, p }, R, doneWall, finN >= 6, Hg); }
       const nx = Math.max(2, Math.round(R.w / 5.5)), nz = Math.max(2, Math.round(R.d / 5.5)), sx = R.w / nx, sz = R.d / nz;
       let top = 0.8;
-      for (let i = 0; i < p.F; i++) {
+      for (let i = done ? 1 : 0; i < p.F; i++) {
         const fp = stP(p, 'f' + (i + 1)); if (fp <= 0) break;
         const y0 = 0.8 + i * fh, ch = fh * Math.min(1, fp / 0.6);
-        const wallC = fi > 0 && i < p.F * fi ? fin : pl > 0 && i < p.F * pl ? plas : brick, walled = br > 0 && i < Math.floor(p.F * br + 1e-6) && fp >= 1;
+        const wallC = done ? doneWall : fi > 0 && i < p.F * fi ? fin : pl > 0 && i < p.F * pl ? plas : brick, walled = br > 0 && i < Math.floor(p.F * br + 1e-6) && fp >= 1;
         for (let a = 0; a <= nx; a++) for (let c = 0; c <= nz; c++) {
           const edge = a === 0 || a === nx || c === 0 || c === nz;
           P.push(pB(0.4, ch, 0.4, R.x - hw + a * sx, y0 + ch / 2, R.z - hd + c * sz, edge && walled && wallC !== brick ? wallC : conc));
@@ -8494,11 +8663,13 @@ function conRefresh(n) {
         top = y0 + ch;
         if (walled) {   // حيطان بين العواميد: حتة مقفولة وحتة فيها شباك
           const faces = [
-            { cnt: nx, pos: k => [R.x - hw + (k + 0.5) * sx, R.z - hd], w: sx - 0.4, d: 0.25 }, { cnt: nx, pos: k => [R.x - hw + (k + 0.5) * sx, R.z + hd], w: sx - 0.4, d: 0.25 },
+            { cnt: nx, pos: k => [R.x - hw + (k + 0.5) * sx, R.z - hd], w: sx - 0.4, d: 0.25, oz: -1 }, { cnt: nx, pos: k => [R.x - hw + (k + 0.5) * sx, R.z + hd], w: sx - 0.4, d: 0.25, oz: 1 },
             { cnt: nz, pos: k => [R.x - hw, R.z - hd + (k + 0.5) * sz], w: 0.25, d: sz - 0.4 }, { cnt: nz, pos: k => [R.x + hw, R.z - hd + (k + 0.5) * sz], w: 0.25, d: sz - 0.4 }];
-          const H = fh - 0.25, glass = fi > 0 && i < p.F * fi;
+          const H = fh - 0.25, glass = done ? finN >= 6 : fi > 0 && i < p.F * fi;
           for (const F2 of faces) for (let k = 0; k < F2.cnt; k++) {
             const [x, z] = F2.pos(k);
+            if (done && glass && (p.type === 'office' || p.type === 'hotel' && k % 3 === 1)) { W.push(pB(F2.w * 0.99, H - 0.4, F2.d * 1.06, x, y0 + 0.2 + (H - 0.4) / 2, z, '#34495e')); continue; }   // واجهة إزاز
+            if (done && glass && T.balcony && F2.oz && (k + i) % 2 === 1) P.push(pB(F2.w, 0.12, 1.2, x, y0 + 0.06, z + F2.oz * 0.72, fin), pB(F2.w, 0.9, 0.05, x, y0 + 0.55, z + F2.oz * 1.3, '#2c3a47'));   // بلكونات
             if ((k + i) % 2 === 0) P.push(pB(F2.w, H, F2.d, x, y0 + H / 2, z, wallC));
             else { P.push(pB(F2.w, 0.9, F2.d, x, y0 + 0.45, z, wallC), pB(F2.w, H - 2.3, F2.d, x, y0 + 2.3 + (H - 2.3) / 2, z, wallC)); if (glass) W.push(pB(F2.w * 0.98, 1.4, F2.d * 0.98, x, y0 + 1.6, z, '#2c3e50')); }
           }
@@ -8515,7 +8686,7 @@ function conRefresh(n) {
         const yt = 0.8 + p.F * fh;
         P.push(pB(R.w, 1, 0.2, R.x, yt + 0.5, R.z - hd, fin), pB(R.w, 1, 0.2, R.x, yt + 0.5, R.z + hd, fin), pB(0.2, 1, R.d, R.x - hw, yt + 0.5, R.z, fin), pB(0.2, 1, R.d, R.x + hw, yt + 0.5, R.z, fin));
         for (let k = 0; k < 3; k++) P.push(pB(1.2, 1.2, 1.2, R.x - hw + 3 + k * 1.6, yt + 0.6, R.z, '#ecf0f1'));
-        P.push(pB(5, 0.3, 3, R.x, 3.6, R.z + f * (hd + 1.5), '#2c3a47'), pB(3, 2.6, 0.1, R.x, 2.1, R.z + f * (hd + 0.06), '#2c3e50'));
+        if (R === rects[0]) { const sw = Math.min(R.w * 0.55, 14); g.add(nameSign(bName(p), '', sw, R.x, p.F > 1 ? Hg + Math.max(1.1, sw * 0.2) / 2 + 0.3 : Hg - 0.8, R.z + f * (hd + 0.2), f > 0 ? 0 : Math.PI, '#1c2632')); }
       }
       // ونش برجي للأدوار العالية
       if (p.F >= 5 && p.started && !p.done && fo >= 1 && br < 1) {
@@ -8545,11 +8716,21 @@ function conRefresh(n) {
   if (!CON_WIN_MAT) { CON_WIN_MAT = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0xffd9a0, emissiveIntensity: 0 }); nightMats.push({ m: CON_WIN_MAT, k: 0.5 }); }
   if (P.length) { const m = mergeGeos(P); m.receiveShadow = true; g.add(m); }
   if (W.length) { const m = mergeGeos(W); m.material = CON_WIN_MAT; g.add(m); }
+  if (GL.length) { CON_GLASS = CON_GLASS || new THREE.MeshLambertMaterial({ color: '#cfe8f5', transparent: true, opacity: 0.25, depthWrite: false }); const m = mergeGeos(GL); m.material = CON_GLASS; m.castShadow = false; g.add(m); }
+  if (SG.length) g.add(signMesh(SG));
   scene.add(g); conGroups[n] = g;
 }
 function conAnimate(dt) {
-  if (!conWorkers.length && !conCranes.length) return;
-  const vis = inWest(), h = hourNow(), work = h >= 7.5 && h < 17.5;
+  if (!conWorkers.length && !conCranes.length && !conShoppers.length) return;
+  const vis = inWest(), h = hourNow(), work = h >= 7.5 && h < 17.5, q = state.player;
+  for (const o of conShoppers) {   // زباين المول
+    o.m.visible = vis && h >= 9 && Math.hypot(q.x - o.R.x, q.z - o.R.z) < 90; if (!o.m.visible) continue;
+    if (o.w > 0) { o.w -= dt; continue; }
+    const du = o.tu - o.u, dv = o.tv - o.v, d = Math.hypot(du, dv);
+    if (d < 0.1) { o.w = rand(1.5, 6); o.tu = rand(-o.au, o.au); o.tv = rand(-o.av, o.av); if (Math.abs(o.tu) < 2.6 && Math.abs(o.tv) < 2.6) o.tv = 3.2 * Math.sign(o.tv || 1); continue; }
+    const st = Math.min(d, 1.1 * dt); o.u += du / d * st; o.v += dv / d * st; o.ph += dt * 7;
+    o.m.position.set(o.R.x + o.u, 0.06 + Math.abs(Math.sin(o.ph)) * 0.035, o.R.z + o.f * o.v); o.m.rotation.y = Math.atan2(du, o.f * dv);
+  }
   for (const c of conCranes) c.piv.rotation.y += dt * 0.12;
   for (const w of conWorkers) {
     w.m.visible = vis && work; if (!w.m.visible) continue;
