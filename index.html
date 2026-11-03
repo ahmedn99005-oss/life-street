@@ -455,6 +455,9 @@ body.touch .prompt { bottom: calc(112px + env(safe-area-inset-bottom, 0px)); }
 <div class="fade" id="fade">Zzz…</div>
 
 <script src="three.min.js"></script>
+<script src="human/SkeletonUtils.js"></script>
+<script src="human/hf.min.js"></script>
+<script>window.__HUMAN_BASE = 'human';</script>
 <script>
 /* =========================================================
    شارع الحياة — v0.2 (منظور الشخص الأول)
@@ -1206,8 +1209,318 @@ function makePerson(o) {
   body.scale.set(ws, hs, ws);
   if (o.kid) { const k = o.kid; body.scale.set(k * 0.95, k, k * 0.95); head.scale.setScalar(1 + (1 - k) * 0.6); head.position.y = 1.56 - (1 - k) * 0.05; }
   g.userData = { lL, lR, aL, aR, head };
+  rpRegister(g, { fem, hijab, dress, shirt, pants, scarfC: o.scarfC, hair, kid: o.kid || 0, hs, old: !fem && hair === '#888' }, false);
   return g;
 }
+// ================= ناس حقيقيين (في نسخة الأبلكيشن بس) =================
+// موديلات MakeHuman (CC0) بهيكل Mixamo وحركات متسجلة من ممثلين؛ الملفات في فولدر human جنب اللعبة.
+// كل واحد في اللعبة ليه شكله الخفيف، والأقرب ليك بس (حسب الإعدادات) بيلبس شكل حقيقي، واللي يبعد يرجع خفيف.
+const RP = { ready: false, busy: false, pkg: null, clips: null, pool: { f: [], fh: [], m: [] }, reg: [], free: new Map(), active: [], made: 0, t: 0 };
+const RP_N = { off: 0, mid: 10, high: 24 };
+const rpLevel = () => (settings.realPeople in RP_N ? settings.realPeople : 'mid');
+const rpAvail = () => !!(window.__HUMAN_BASE && window.HF && window.THREE && THREE.SkeletonUtils);
+const rpSan = s => s.replace(/\s/g, '_').replace(/[\[\]\.:\/]/g, '');
+// التشكيلة: بشرة مصرية مختلفة، أعمار وأوزان، محجبات بعبايات وجلابيات وفساتين، كاجوال وبدل، ورجالة بجلابية
+const RP_LOOKS = {
+  f: [
+    { clothes: ['female_casualsuit01', 'shoes01'], hair: 'long01', skin: 'young_caucasian_female' },
+    { clothes: ['female_casualsuit02', 'shoes02'], hair: 'ponytail01', skin: 'young_caucasian_female2', tan: 1 },
+    { clothes: ['female_elegantsuit01', 'shoes05'], hair: 'rehmanpolanski_hair_bun_brown', skin: 'middleage_caucasian_female', age: 0.3, tan: 1 },
+    { clothes: ['toigo_female_suit_2', 'shoes05'], hair: 'bob02', skin: 'young_asian_female', tan: 1 },
+    { clothes: ['female_casualsuit01', 'shoes02'], hair: 'braid01', skin: 'young_african_female' },
+  ],
+  fh: [
+    { clothes: ['hijab01', 'abaya01', 'shoes01'], skin: 'young_caucasian_female', tan: 1 },
+    { clothes: ['hijab01', 'dress_maxi01', 'shoes02'], skin: 'young_asian_female', tan: 1 },
+    { clothes: ['amira01', 'jalabiya01', 'shoes01'], skin: 'middleage_caucasian_female', age: 0.35, tan: 1 },
+    { clothes: ['hijab01', 'female_casualsuit02', 'shoes05'], skin: 'young_caucasian_female2' },
+    { clothes: ['amira01', 'abaya01', 'shoes02'], skin: 'old_caucasian_female', age: 0.6, old: true, tan: 1 },
+    { clothes: ['hijab01', 'female_elegantsuit01', 'shoes05'], skin: 'young_african_female', age: 0.25 },
+    { clothes: ['amira01', 'female_casualsuit01', 'shoes02'], skin: 'young_caucasian_female', tan: 1 },
+  ],
+  m: [
+    { clothes: ['male_casualsuit01', 'shoes03'], hair: 'short02', skin: 'young_caucasian_male2', tan: 1 },
+    { clothes: ['male_casualsuit02', 'shoes03'], hair: 'short01', skin: 'middleage_african_male', age: 0.12 },
+    { clothes: ['male_casualsuit03', 'shoes01'], hair: 'short03', skin: 'middleage_caucasian_male', age: 0.35, tan: 1 },
+    { clothes: ['male_casualsuit04', 'shoes03'], hair: 'culturalibre_hair_02', skin: 'young_caucasian_male' },
+    { clothes: ['male_casualsuit05', 'shoes01'], hair: 'short04', skin: 'old_asian_male', age: 0.3 },
+    { clothes: ['male_casualsuit06', 'shoes03'], hair: 'short02', skin: 'young_asian_male', tan: 1 },
+    { clothes: ['male_elegantsuit01', 'shoes05'], hair: 'short01', skin: 'middleage_caucasian_male', age: 0.45 },
+    { clothes: ['toigo_male_suit_3', 'shoes05'], hair: 'short03', skin: 'young_caucasian_male2', tan: 1 },
+    { clothes: ['male_worksuit01', 'shoes03'], hair: 'short04', skin: 'old_caucasian_male', age: 0.7, old: true, hairColor: '#8a8580', tan: 1 },
+    { clothes: ['jalabiya01', 'shoes01'], hair: 'short01', skin: 'old_asian_male', age: 0.62, old: true, hairColor: '#9a968f', jal: true },
+    { clothes: ['jalabiya01', 'shoes03'], hair: 'short04', skin: 'middleage_african_male', age: 0.38, jal: true },
+  ],
+};
+const RP_HAIRC = ['#1a120c', '#2b1b10', '#3a2414', '#1a1a1a', '#4a2e16'];
+const RP_JAL = ['#ecebe6', '#d9d2c3', '#9c9182', '#5d6b75', '#3d4a5c', '#7a6650'];
+const rpSleep = ms => new Promise(r => setTimeout(r, ms));
+async function rpInit() {
+  if (RP.ready || RP.busy || !rpAvail()) return RP.ready;
+  RP.busy = true;
+  try {
+    const base = window.__HUMAN_BASE.replace(/\/$/, '');
+    RP.pkg = await HF.loadHumanPackage(base, { textureFormat: 'mobile', mobileBaseUrl: base + '/mobile' });
+    RP.clips = await (await fetch(base + '/anims.json')).json();
+    for (const [k, looks] of Object.entries(RP_LOOKS)) for (const L of looks) {
+      try { RP.pool[k].push(await rpMakeTemplate(k, L)); } catch (e) { console.warn('human look failed', L, e); }
+      await rpSleep(20);   // يسيب اللعبة تتنفس بين كل واحد والتاني
+    }
+    RP.ready = RP.pool.m.length > 0 && RP.pool.f.length + RP.pool.fh.length > 0;
+  } catch (e) { console.warn('real people unavailable', e); }
+  RP.busy = false;
+  return RP.ready;
+}
+async function rpMakeTemplate(k, L) {
+  const fem = k !== 'm', r = (a, b) => a + Math.random() * (b - a);
+  const cfg = { gender: fem ? 0 : 1, age: L.age ?? r(0.02, 0.22), weight: r(0.35, 0.7), muscle: r(0.35, 0.65), height: r(0.3, 0.7), proportions: 0.5,
+    caucasian: r(0.45, 0.65), african: r(0.25, 0.45), asian: r(0.02, 0.1), skin: L.skin, skinTint: L.tan ? pick(['#ecd0b4', '#e2bf9c', '#d8b08a']) : pick(['#ffffff', '#f6e4d2']), eyes: pick(['brown', 'brown', 'brownlight', 'green']),
+    eyebrows: pick(['eyebrow001', 'eyebrow004', 'eyebrow006', 'eyebrow010']), eyebrowColor: '#2b1b10', eyelashes: 'eyelashes01', hair: L.hair || null, hairColor: L.hairColor || pick(RP_HAIRC), clothes: L.clothes, garmentColors: {} };
+  const av = new HF.HumanAvatar(RP.pkg); av.textureSize = '512'; av.normalMaps = false; av.anisotropy = 1;
+  await av.setConfig(cfg);
+  return rpTemplate(av, L);
+}
+// قالب: من غير سنان ولسان ولا تعبيرات وش (تقيلة على الموبايل)، وأسامي العضم متظبطة للحركات
+function rpTemplate(av, L) {
+  const root = av.group, drop = [];
+  let H = 1.7;
+  root.traverse(o => {
+    if (o.isBone) o.name = rpSan(o.name);
+    if (!o.isMesh) return;
+    if (/^(teeth|tongue)-/.test(o.name)) { drop.push(o); return; }
+    const g = o.geometry;
+    if (g.morphAttributes && g.morphAttributes.position) { g.morphAttributes = {}; o.morphTargetInfluences = undefined; o.morphTargetDictionary = undefined; }
+    for (const m of [].concat(o.material)) { m.skinning = !!o.isSkinnedMesh; m.morphTargets = false; m.needsUpdate = true; }
+    o.castShadow = /^(body|clothes-)/.test(o.name); o.receiveShadow = false;
+    g.computeBoundingSphere(); g.boundingSphere.radius += 0.35; o.frustumCulled = true;
+    if (o.name === 'body') { g.computeBoundingBox(); H = g.boundingBox.max.y; }
+  });
+  drop.forEach(o => o.parent && o.parent.remove(o));
+  root.updateMatrixWorld(true);
+  return { root, clips: rpRetarget(root, RP.clips), H, old: !!L.old, jal: !!L.jal };
+}
+// الحركات متسجلة على هيكل تاني: كل عضمة بتلف في العالم نفس لفة العضمة المقابلة، بعد تعديل فرق الوقفة (A ↔ T)
+const _b64 = (s, T) => new T(Uint8Array.from(atob(s), ch => ch.charCodeAt(0)).buffer);
+function rpRetarget(root, R) {
+  const V = THREE.Vector3, Q = THREE.Quaternion, M = THREE.Matrix4;
+  // هيكل الحركة الأصلي (Xbot) في وقفته
+  const xr = R.rest, xi = {}; xr.forEach((b, i) => (xi[b.n] = i));
+  const xL = xr.map(b => new M().compose(new V(...b.t), new Q(...b.r), new V(...b.s)));
+  const xW = []; xr.forEach((b, i) => (xW[i] = b.p < 0 ? xL[i].clone() : xW[b.p].clone().multiply(xL[i])));
+  const xWQ = xW.map(m => { const q = new Q(); m.decompose(new V(), q, new V()); return q; }), xWP = xW.map(m => new V().setFromMatrixPosition(m));
+  // هيكل الشخص
+  const inv = root.matrixWorld.clone().invert(), bones = [];
+  root.traverse(o => { if (o.isBone) bones.push(o); });
+  const bi = new Map(bones.map((b, i) => [b, i]));
+  const par = bones.map(b => (bi.has(b.parent) ? bi.get(b.parent) : -1));
+  const aM = bones.map(b => inv.clone().multiply(b.matrixWorld));
+  const aWQ = aM.map(m => { const q = new Q(); m.decompose(new V(), q, new V()); return q; }), aWP = aM.map(m => new V().setFromMatrixPosition(m));
+  const parRestQ = bones.map((b, i) => { if (par[i] >= 0) return null; const m = inv.clone().multiply(b.parent.matrixWorld), q = new Q(); m.decompose(new V(), q, new V()); return q; });
+  const map = bones.map(b => (b.name in xi ? xi[b.name] : -1));
+  // تصحيح فرق الوقفة: اتجاه العضمة (لابنها) عندنا ↔ اتجاهها في الهيكل الأصلي
+  const pref = /Spine|Neck|Head|Middle1|Foot|ToeBase|Leg|Arm|Hand/;
+  const C = bones.map((b, i) => {
+    const xj = map[i]; if (xj < 0 || /Hips$/.test(b.name)) return new Q();
+    const kids = bones.map((c, k) => k).filter(k => par[k] === i && map[k] >= 0);
+    if (!kids.length) return new Q();
+    const k = kids.find(k => pref.test(bones[k].name)) ?? kids[0];
+    const da = aWP[k].clone().sub(aWP[i]), dx = xWP[map[k]].clone().sub(xWP[xj]);
+    if (da.lengthSq() < 1e-10 || dx.lengthSq() < 1e-10) return new Q();
+    return new Q().setFromUnitVectors(da.normalize(), dx.normalize());
+  });
+  const aC = bones.map((b, i) => C[i].clone().multiply(aWQ[i]));
+  const hipsA = bones.findIndex(b => /Hips$/.test(b.name)), hipsX = xi.mixamorigHips;
+  const sc = hipsA >= 0 ? aWP[hipsA].y / Math.max(1e-3, xWP[hipsX].y) : 1;
+  const hipsLocal = hipsA >= 0 ? bones[hipsA].position.clone() : null;
+  const out = {};
+  for (const c of R.clips) {
+    // كل التراكات على نفس التوقيتات (Mixamo بيطلّعها كده)؛ لو لأ بناخد أقرب مفتاح
+    const trk = {}; let times = null, hipsT = null;
+    for (const t of c.tracks) {
+      const tt = _b64(t.t, Float32Array), raw = _b64(t.v, Int16Array);
+      if (t.p === 'q') { const v = new Float32Array(raw.length); for (let i = 0; i < raw.length; i++) v[i] = raw[i] / 32767; trk[t.n] = { tt, v }; if (!times || tt.length > times.length) times = tt; }
+      else if (t.p === 'pos') hipsT = { tt, raw };
+    }
+    if (!times) continue;
+    const K = times.length, at = (tr, k) => { if (tr.tt.length === K) return k; let j = 0; while (j < tr.tt.length - 1 && tr.tt[j + 1] <= times[k]) j++; return j; };
+    const outQ = bones.map((b, i) => (map[i] >= 0 ? new Float32Array(K * 4) : null));
+    const xq = xr.map(() => new Q()), D = xr.map(() => new Q()), aw = bones.map(() => new Q()), tmp = new Q(), lq = new Q();
+    for (let k = 0; k < K; k++) {
+      xr.forEach((b, i) => {
+        const tr = trk[b.n];
+        if (tr) { const j = at(tr, k) * 4; lq.set(tr.v[j], tr.v[j + 1], tr.v[j + 2], tr.v[j + 3]).normalize(); } else lq.set(...b.r);
+        if (b.p < 0) xq[i].copy(xWQ[i]); else xq[i].copy(xq[b.p]).multiply(lq);
+        D[i].copy(xq[i]).multiply(tmp.copy(xWQ[i]).invert());
+      });
+      bones.forEach((b, i) => {
+        const pW = par[i] >= 0 ? aw[par[i]] : parRestQ[i];
+        if (map[i] >= 0) { aw[i].copy(D[map[i]]).multiply(aC[i]); lq.copy(pW).invert().multiply(aw[i]); if (k && lq.dot(tmp.fromArray(outQ[i], (k - 1) * 4)) < 0) { lq.x = -lq.x; lq.y = -lq.y; lq.z = -lq.z; lq.w = -lq.w; } lq.toArray(outQ[i], k * 4); }
+        else aw[i].copy(pW).multiply(b.quaternion);
+      });
+    }
+    const tracks = [];
+    bones.forEach((b, i) => { if (outQ[i]) tracks.push(new THREE.QuaternionKeyframeTrack(`${b.name}.quaternion`, times, outQ[i])); });
+    if (hipsT && hipsA >= 0) {
+      const n = hipsT.raw.length / 3, v = new Float32Array(n * 3); let mx = 0, mz = 0;
+      for (let i = 0; i < n; i++) { mx += hipsT.raw[i * 3]; mz += hipsT.raw[i * 3 + 2]; } mx /= n; mz /= n;
+      const pinv = parRestQ[hipsA] ? parRestQ[hipsA].clone().invert() : aWQ[par[hipsA]].clone().invert(), d = new V();
+      const s = 0.01 * xr[0].s[1] * sc / (bones[hipsA].parent.getWorldScale(new V()).y || 1);
+      for (let i = 0; i < n; i++) {
+        d.set((hipsT.raw[i * 3] - mx) / 100, (hipsT.raw[i * 3 + 1] / 100 - xr[hipsX].t[1]), (hipsT.raw[i * 3 + 2] - mz) / 100).multiplyScalar(s * 100).applyQuaternion(pinv);
+        v[i * 3] = hipsLocal.x + d.x; v[i * 3 + 1] = hipsLocal.y + d.y; v[i * 3 + 2] = hipsLocal.z + d.z;
+      }
+      tracks.push(new THREE.VectorKeyframeTrack(`${bones[hipsA].name}.position`, hipsT.tt, v));
+    }
+    out[c.name] = new THREE.AnimationClip(c.name, c.duration, tracks);
+  }
+  return out;
+}
+// ---------- كل واحد في اللعبة بيتسجل هنا، والأقرب ليك بياخد شكل حقيقي ----------
+function rpRegister(obj, spec, baked) {
+  if (!window.__HUMAN_BASE) return;
+  const e = { obj, spec, baked, body: baked ? null : obj.children[0], inst: null, lost: 0, seed: Math.random(), tpl: null };
+  obj.userData.rpE = e; RP.reg.push(e);
+  if (RP.reg.length > 3000) RP.reg = RP.reg.filter(x => x.inst || x.obj.parent);
+}
+let RP_HIDE = null;
+function rpHideProc(e, hide) {
+  if (e.baked) {
+    if (hide) { if (!RP_HIDE) RP_HIDE = new THREE.MeshBasicMaterial({ visible: false }); if (e.obj.material !== RP_HIDE) e.mat0 = e.obj.material; e.obj.material = RP_HIDE; }
+    else if (e.mat0) { e.obj.material = e.mat0; e.mat0 = null; }
+  } else if (e.body) e.body.visible = !hide;
+}
+function rpPickT(e) {
+  if (e.tpl) return e.tpl;
+  const sp = e.spec, P = RP.pool;
+  let pool = sp.fem ? (sp.hijab ? P.fh : P.f) : P.m;
+  if (!pool.length) pool = sp.fem ? (P.fh.length ? P.fh : P.f) : P.m;
+  if (!pool.length) return null;
+  const old = !sp.kid && sp.old, fit = pool.filter(T => (old ? T.old : !T.old) && !(sp.kid && T.jal));
+  const list = fit.length ? fit : pool;
+  return (e.tpl = list[Math.floor(e.seed * list.length) % list.length]);
+}
+function rpNewInst(T) {
+  const root = THREE.SkeletonUtils.clone(T.root), tints = [];
+  let head = null, armL = null, armR = null;
+  root.traverse(o => {
+    if (o.isMesh) {
+      const n = o.name, kind = /hijab|amira/.test(n) ? 'head' : /abaya|jalabiya|dress_maxi/.test(n) ? 'outfit' : /^hair-/.test(n) ? 'hair' : null;
+      if (kind) { const om = o.material, nm = om.clone(); nm.skinning = true; nm.morphTargets = false; nm.onBeforeCompile = om.onBeforeCompile; if (om.customProgramCacheKey) nm.customProgramCacheKey = om.customProgramCacheKey; o.material = nm; tints.push([nm, kind, om.color.clone()]); }
+    }
+    if (o.isBone) { if (o.name === 'mixamorigHead') head = o; else if (o.name === 'mixamorigLeftArm') armL = o; else if (o.name === 'mixamorigRightArm') armR = o; }
+  });
+  const mixer = new THREE.AnimationMixer(root), idle = mixer.clipAction(T.clips.idle), walk = mixer.clipAction(T.clips.walk);
+  idle.play(); walk.play(); walk.setEffectiveWeight(0);
+  RP.made++;
+  return { T, root, mixer, idle, walk, tints, head, armL, armR, w: 0, sp: 0, last: null, acc: 0, flip: false };
+}
+function rpTake(e) {
+  let T = rpPickT(e); if (!T) return null;
+  const fl = RP.free.get(T);
+  if (fl && fl.length) return fl.pop();
+  if (RP.made >= 70) {   // كفاية نسخ: خد أي واحد فاضي من نفس النوع
+    const pool = RP.pool[e.spec.fem ? (e.spec.hijab ? 'fh' : 'f') : 'm'];
+    for (const T2 of pool) { const l2 = RP.free.get(T2); if (l2 && l2.length) { e.tpl = T2; return l2.pop(); } }
+  }
+  return rpNewInst(T);
+}
+function rpAttach(e) {
+  const fresh = RP.made, it = rpTake(e); if (!it) return 0;
+  const sp = e.spec;
+  for (const [m, kind, c0] of it.tints) {
+    let c = kind === 'head' ? sp.scarfC || sp.shirt : kind === 'outfit' ? (it.T.jal ? RP_JAL[Math.floor(e.seed * 977) % RP_JAL.length] : sp.dress ? sp.shirt : sp.pants) : sp.hair;
+    if (kind === 'hair' && (it.T.old || (c && /^#8/.test(c)))) { m.color.set('#9a968f'); continue; }   // شعر أبيض
+    if (!c) { m.color.copy(c0); continue; }
+    m.color.set(c).convertSRGBToLinear();
+  }
+  it.root.scale.setScalar((sp.kid || sp.hs || 1) * 1.78 / it.T.H);
+  if (it.head) it.head.scale.setScalar(sp.kid ? 1 + (1 - sp.kid) * 0.55 : 1);
+  it.root.position.set(0, 0, 0); it.root.rotation.set(0, 0, 0);
+  e.obj.add(it.root); rpHideProc(e, true);
+  it.idle.time = Math.random() * it.idle.getClip().duration; it.w = 0; it.idle.setEffectiveWeight(1); it.walk.setEffectiveWeight(0); it.last = null; it.sp = 0; it.acc = 0;
+  it.mixer.update(0.001);
+  e.inst = it; RP.active.push(e);
+  return RP.made > fresh ? 2 : 1;
+}
+function rpDetach(e) {
+  const it = e.inst; if (!it) return;
+  if (it.root.parent) it.root.parent.remove(it.root);
+  rpHideProc(e, false);
+  if (!RP.free.has(it.T)) RP.free.set(it.T, []);
+  RP.free.get(it.T).push(it);
+  e.inst = null;
+  const k = RP.active.indexOf(e); if (k >= 0) RP.active.splice(k, 1);
+}
+let _rpv = null, _rpf = null, _rpq = null, _rpq2 = null, _rpd = null, _rpd2 = null, _rpe = null;
+function rpSelect(N) {
+  const cam = camera.position, R = N > 12 ? 42 : 32, cand = [];
+  camera.getWorldDirection(_rpf);
+  for (let i = RP.reg.length - 1; i >= 0; i--) {
+    const e = RP.reg[i];
+    if (e.dead) { rpDetach(e); RP.reg.splice(i, 1); continue; }
+    if (!e.obj.parent) { if (e.inst) rpDetach(e); e.lost += 0.3; if (e.lost > 30) RP.reg.splice(i, 1); continue; }
+    e.lost = 0;
+    let vis = true; for (let p = e.obj; p; p = p.parent) if (!p.visible) { vis = false; break; }
+    if (!vis) { if (e.inst) rpDetach(e); continue; }
+    e.obj.getWorldPosition(_rpv);
+    const dx = _rpv.x - cam.x, dy = _rpv.y - cam.y, dz = _rpv.z - cam.z, d = Math.hypot(dx, dy, dz);
+    if (d > R) { if (e.inst) rpDetach(e); continue; }
+    const front = (dx * _rpf.x + dy * _rpf.y + dz * _rpf.z) / Math.max(d, 0.01);
+    cand.push([d * (front < 0.25 && d > 5 ? 2.2 : 1) * (e.inst ? 0.85 : 1), e]);
+  }
+  cand.sort((a, b) => a[0] - b[0]);
+  let fresh = 0;
+  for (let i = 0; i < cand.length; i++) {
+    const e = cand[i][1];
+    if (i >= N) { if (e.inst) rpDetach(e); continue; }
+    if (e.inst) continue;
+    if (fresh >= 2) { const fl = RP.free.get(rpPickT(e)); if (!fl || !fl.length) continue; }   // ماتعملش أكتر من ٢ جداد في المرة عشان مايقطّعش
+    if (rpAttach(e) === 2) fresh++;
+  }
+}
+function rpPose(e, it) {
+  // لو الشكل الخفيف رافع إيده (شايل كرتونة، بيكتب، بيشاور، بيدق) الحقيقي يرفعها زيه
+  const u = e.obj.userData;
+  for (const [A, bone, z0] of [[u.aL, it.armR, -0.05], [u.aR, it.armL, 0.05]]) {
+    if (!A || !bone) continue;
+    const rx = A.rotation.x, rz = A.rotation.z - z0;
+    if (Math.abs(rx) < 0.55 && Math.abs(rz) < 0.12) continue;
+    _rpe.set(rx, 0, rz); _rpd.set(0, -1, 0).applyEuler(_rpe).applyQuaternion(e.obj.getWorldQuaternion(_rpq));
+    bone.parent.updateWorldMatrix(true, false); bone.updateMatrixWorld();
+    bone.getWorldQuaternion(_rpq); _rpd2.set(0, 1, 0).applyQuaternion(_rpq);
+    _rpq2.setFromUnitVectors(_rpd2, _rpd).multiply(_rpq);
+    bone.parent.getWorldQuaternion(_rpq); bone.quaternion.copy(_rpq.invert().multiply(_rpq2));
+  }
+}
+function rpAnimate(e, dt) {
+  const it = e.inst;
+  e.obj.getWorldPosition(_rpv);
+  let sp = 0;
+  if (it.last) sp = Math.hypot(_rpv.x - it.last.x, _rpv.z - it.last.z) / Math.max(dt, 1e-3); else it.last = new THREE.Vector3();
+  if (sp > 9) sp = 0;   // اتنقل مرة واحدة مش ماشي
+  it.last.copy(_rpv);
+  it.sp = it.sp * 0.85 + sp * 0.15;
+  it.w += ((it.sp > 0.3 ? 1 : 0) - it.w) * Math.min(1, dt * 5);
+  it.walk.setEffectiveWeight(it.w); it.idle.setEffectiveWeight(1 - it.w);
+  it.walk.timeScale = clamp(it.sp / (1.3 * it.root.scale.x), 0.5, 2.2);
+  it.acc += dt;
+  if (_rpv.distanceTo(camera.position) < 16 || (it.flip = !it.flip)) { it.mixer.update(it.acc); it.acc = 0; }   // البعيد بيتحدّث فريم آه وفريم لأ
+  if (!e.baked) rpPose(e, it);
+}
+function rpUpdate(dt) {
+  if (!RP.ready || !camera) return;
+  if (!_rpv) { _rpv = new THREE.Vector3(); _rpf = new THREE.Vector3(); _rpq = new THREE.Quaternion(); _rpq2 = new THREE.Quaternion(); _rpd = new THREE.Vector3(); _rpd2 = new THREE.Vector3(); _rpe = new THREE.Euler(); }
+  const N = RP_N[rpLevel()];
+  if (!N) { if (RP.active.length) RP.active.slice().forEach(rpDetach); return; }
+  const now = performance.now(); if (now - RP.t > 300) { RP.t = now; rpSelect(N); }   // كل ٠.٣ ثانية حقيقية
+  for (const e of RP.active) rpAnimate(e, dt);
+}
+function rpKick() {
+  if (!rpAvail() || rpLevel() === 'off' || RP.ready || RP.busy) return;
+  RP.busy = true;   // يحجز عشان مايتنادىش مرتين
+  setTimeout(() => { RP.busy = false; rpInit().then(ok => { if (ok) toast('👥 الناس القريبين منك بقوا شكلهم حقيقي', 'good', 3500); }); }, 2500);
+}
+
 function makeCar(color) {
   const g = new THREE.Group();
   const part = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; g.add(m); return m; };
@@ -1947,7 +2260,7 @@ function forSalePanel(p) {
 // ---------- الإعدادات ----------
 const SETTINGS_KEY = 'life-street-settings-v1';
 const settings = Object.assign(
-  { quality: isTouch ? 'medium' : 'high', sens: 1, joySide: 'left', minimap: true, timeSpeed: 2 },
+  { quality: isTouch ? 'medium' : 'high', sens: 1, joySide: 'left', minimap: true, timeSpeed: 2, realPeople: 'mid' },
   (() => { try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch (e) { return {}; } })()
 );
 function saveSettings() { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) {} }
@@ -1967,8 +2280,9 @@ function applySettings() {
     scene.traverse(o => { if (o.material) [].concat(o.material).forEach(m => { m.needsUpdate = true; }); });
   }
   resize();
+  rpKick();
 }
-const GAME_VER = 79;   // رقم النسخة: بيظهر في الإعدادات وبيقولك لما اللعبة تتحدّث
+const GAME_VER = 80;   // رقم النسخة: بيظهر في الإعدادات وبيقولك لما اللعبة تتحدّث
 function openSettings() {
   if (panelOpen()) return;
   openPanel('الإعدادات', `ظبط اللعبة على جهازك · النسخة ${GAME_VER}`, body => {
@@ -1980,6 +2294,7 @@ function openSettings() {
       <div class="setting"><b>مكان الجويستيك</b><small>الإيد اللي بتمشي بيها على الموبايل. زراير «ادخل» و«اركب» بتروح الناحية التانية.</small>${seg('joySide', [['left', 'شمال'], ['right', 'يمين']])}</div>
       <div class="setting"><b>سرعة الوقت</b><small>كل ثانية حقيقية بكام دقيقة في اللعبة.</small>${seg('timeSpeed', [[1, 'بطيء'], [2, 'عادي'], [4, 'سريع']])}</div>
       <div class="setting"><b>الخريطة الصغيرة</b>${seg('minimap', [['true', 'ظاهرة'], ['false', 'مخفية']])}</div>
+      ${rpAvail() ? `<div class="setting"><b>شكل الناس</b><small>${RP.busy ? 'بيحمّل الناس الحقيقيين…' : RP.ready ? 'الناس القريبين منك بيبقى شكلهم حقيقي.' : 'الناس هيبقوا بالشكل البسيط.'} لو الموبايل تقل أو سخن اختار «بسيط».</small>${seg('realPeople', [['off', 'بسيط'], ['mid', 'حقيقي'], ['high', 'حقيقي أكتر']])}</div>` : ''}
       <div class="setting"><b>نسخة احتياطية</b><small>احفظ تقدمك في ملف أو كود عشان لو بيانات المتصفح اتمسحت ترجعه. ${state.lastBackup ? `آخر نسخة: اليوم ${state.lastBackup}` : 'لسه ماعملتش نسخة.'}</small>
         <div class="actions"><button class="btn pri" type="button" data-act="bkFile">نزّل ملف الحفظ</button><button class="btn" type="button" data-act="bkCode">انسخ كود الحفظ</button></div>
         <div class="actions"><button class="btn" type="button" data-act="rsFile">رجّع من ملف</button><button class="btn" type="button" data-act="rsCode">رجّع من كود</button></div>
@@ -9376,7 +9691,9 @@ function bakePerson(g) {
   g.updateMatrixWorld(true);
   const inv = new THREE.Matrix4().copy(g.matrixWorld).invert(), parts = [];
   g.traverse(o => { if (o.isMesh && o.geometry && o.visible) { const geo = o.geometry.clone(); geo.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld)); parts.push({ g: geo, c: geo.attributes.color ? null : o.material && o.material.color ? '#' + o.material.color.getHexString() : '#888888' }); } });
-  const m = mergeGeos(parts); m.castShadow = false; return m;
+  const m = mergeGeos(parts); m.castShadow = false;
+  const e = g.userData.rpE; if (e) { e.dead = true; rpRegister(m, e.spec, true); }
+  return m;
 }
 const dropMesh = m => { scene.remove(m); if (m.geometry) m.geometry.dispose(); };
 function cnsAnimate(dt) {
@@ -10945,6 +11262,7 @@ function frame(t) {
   updateWorld(dt);
   updateSky();
   updateCamera();
+  rpUpdate(dt);
   renderer.render(scene, camera);
   hudTimer += dt; if (hudTimer > 0.2) { hudTimer = 0; updateHUD(); drawMini(); updateNotice(); }
   updatePrompt();
