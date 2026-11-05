@@ -2295,7 +2295,7 @@ function applySettings() {
   resize();
   rpKick();
 }
-const GAME_VER = 83;   // رقم النسخة: بيظهر في الإعدادات وبيقولك لما اللعبة تتحدّث
+const GAME_VER = 84;   // رقم النسخة: بيظهر في الإعدادات وبيقولك لما اللعبة تتحدّث
 function openSettings() {
   if (panelOpen()) return;
   openPanel('الإعدادات', `ظبط اللعبة على جهازك · النسخة ${GAME_VER}`, body => {
@@ -10181,8 +10181,8 @@ const NLU = (() => {
     food: ['اكل', 'غدا', 'عشا', 'فطار', 'كشري', 'فول', 'طعمية', 'بيتزا', 'شاورما', 'محشي', 'ملوخية', 'كفتة', 'حلويات', 'قهوة', 'شاي', 'جعان', 'جعانة', 'طبخ', 'بتطبخي', 'مكرونة', 'فراخ', 'سمك', 'رز'],
     work: ['شغل', 'مدير', 'مديرة', 'زباين', 'محل', 'مكتب', 'بنك', 'شركة', 'مرتب', 'الشيفت', 'وظيفة', 'شغلك', 'شغالة', 'بتشتغلي', 'وظيفتك'],
     study: ['كلية', 'امتحان', 'امتحانات', 'مذاكرة', 'جامعة', 'محاضرة', 'دكتور الكلية', 'تخرج', 'مذاكرتك'],
-    family: ['ماما', 'بابا', 'اخويا', 'اختي', 'اهلي', 'عيلتي', 'اهلك', 'مامتك', 'باباكي', 'اخواتك', 'جدتي', 'خالتي', 'عمتي'],
     football: ['كورة', 'ماتش', 'الاهلي', 'الزمالك', 'صلاح', 'مباراة', 'المنتخب', 'جول'],
+    family: ['ماما', 'بابا', 'اخويا', 'اختي', 'اهلي', 'عيلتي', 'اهلك', 'مامتك', 'باباكي', 'اخواتك', 'جدتي', 'خالتي', 'عمتي'],
     movies: ['فيلم', 'مسلسل', 'سينما', 'نتفليكس', 'تركي', 'حلقة', 'افلام', 'مسلسلات', 'شاهد'],
     music: ['اغنية', 'اغاني', 'عمرو دياب', 'الهضبة', 'ويجز', 'ام كلثوم', 'حماقي', 'تامر حسني', 'مهرجان', 'مهرجانات', 'موسيقى', 'شيرين', 'انغام'],
     travel: ['سفر', 'نسافر', 'اسكندرية', 'الساحل', 'شرم', 'الغردقة', 'دهب', 'سيوة', 'بحر', 'مصيف', 'رحلة', 'الاقصر', 'اسوان'],
@@ -10338,6 +10338,7 @@ function mindTick(g, mins) {
   const dec = (x, k) => x * Math.exp(-k * h);
   e.joy = dec(e.joy, 0.25); e.anger = dec(e.anger, 0.05 + 0.12 * p.A); e.sad = dec(e.sad, 0.08); e.jeal = dec(e.jeal, 0.05 + 0.05 * (1 - p.N)); e.anx = dec(e.anx, 0.15); e.spark = Math.max(5, dec(e.spark, 0.01));
   if (!M.pm.lastIn) M.pm.lastIn = absNow();
+  if (M.wake && state.day >= M.wake && hourNow() >= 7 && hourNow() < 11 && !L.inbox[g.id]) { M.wake = null; M.forceOpener = pick(['صباح الخير ☀️ صحيتك أهو زي ما قلتلي 😄', 'يلا اصحى بقى ☀️ قلتلي أصحيك 😄']); sendHer(g, 'chat'); }
   if (g.touch !== M.touch0) { if (M.touch0 != null) { M.pm.lastIn = absNow(); e.long *= 0.3; } M.touch0 = g.touch; }   // اتقابلتوا أو اهتميت بيها بطريقة تانية
   const since = (absNow() - M.pm.lastIn) / 60;
   if (g.stage >= 2 && g.aff > 25 && since > 5) e.long = mC(e.long + h * (g.aff / 100) * (2 + 2 * p.N));
@@ -10416,6 +10417,10 @@ function mindHear(g, f, ctx = {}) {
     else { const strong = st < 4; D.anger += strong ? 28 : 14; D.respect -= strong ? 22 : 10; D.trust -= strong ? 10 : 4; D.aff -= strong ? 9 : 4; R.push({ k: strong ? 'explicit' : 'explicit_soft' }); mRemember(M, 'explicit', 'قال كلام مش محترم', strong ? 7 : 4); }
   }
   if (f.rude || (f.explicit && st < 6)) { M.lastHeard = f; return mindApply(g, M, D, R, f, ctx); }
+  // فهم السؤال أو الطلب أو ردك على سؤالها
+  const tmp = {}, qa = qaAnswer(g, f, tmp);
+  if (qa) R.push({ k: 'qa', txt: qa.txt, follow: qa.follow, back: f.question ? qaBackOf(g, f.text) : null });
+  const qaDone = !!qa;
   // المشاعر العامة للكلام
   D.joy += f.sent * 8 * (1 + f.intensity * 0.25);
   if (f.sent < -0.4 && !has('apology') && !has('sad_me')) { D.sad += 6; D.anger += 5; R.push({ k: 'hurt' }); }
@@ -10444,9 +10449,10 @@ function mindHear(g, f, ctx = {}) {
   // شكر
   if (has('thanks')) { D.joy += 3; R.push({ k: 'welcome' }); }
   // اهتمام بيها
-  if (has('howru') || has('ask_day') || has('ask_her') || (f.question && Object.keys(f.topics).length)) { n.att = mC(n.att + 15); D.joy += 3; D.trust += 1; R.push({ k: 'answer', topic: Object.keys(f.topics)[0] || (has('ask_day') || has('howru') ? 'day' : null) }); }
-  // بيحكيلها عن نفسه
-  if (f.selfShare && f.len >= 4) { D.trust += 2; n.att = mC(n.att + 5); R.push({ k: 'listen', topic: Object.keys(f.topics)[0] }); }
+  if (has('howru') || has('ask_day') || has('ask_her') || f.question) { n.att = mC(n.att + 15); D.joy += 3; D.trust += 1; if (!qaDone) { const tp = Object.keys(f.topics)[0]; if (tp) R.push({ k: 'answer', topic: tp }); else if (has('ask_day') || has('howru')) R.push({ k: 'answer', topic: 'day' }); } }
+  // بيحكيلها عن نفسه أو عن حاجة
+  if (!qaDone && !f.question && Object.keys(f.topics).length && f.len >= 2 && QA_TOPIC_REPLY[Object.keys(f.topics)[0]]) { D.trust += 1; n.att = mC(n.att + 5); R.push({ k: 'topic', topic: Object.keys(f.topics)[0] }); }
+  else if (!qaDone && f.selfShare && f.len >= 4) { D.trust += 2; n.att = mC(n.att + 5); R.push({ k: 'listen', topic: Object.keys(f.topics)[0] }); }
   if (has('sad_me')) { D.trust += 3; R.push({ k: 'comfort' }); mRemember(M, 'his_sad', 'كان متضايق وحكالي', 2); }
   if (has('busy_me')) { R.push({ k: 'ok_busy' }); if (M.att === 'anxious') D.anx += 5; }
   // هزار
@@ -10472,15 +10478,17 @@ function mindHear(g, f, ctx = {}) {
   if (has('religion') && likes('traditional')) { D.respect += 3; D.aff += 1; }
   if (has('promise')) { M.promise = { d: state.day, txt: f.orig.slice(0, 60) }; D.trust += 1; }
   // ردود ناشفة بعد ما حكتلك أو سألتك
-  if (f.dry && ['share', 'ask', 'feel'].includes(M.lastMove)) { D.sad += 6; n.att = mC(n.att - 5); D.aff -= 1; R.push({ k: 'dry' }); }
+  if (f.dry && ['share', 'ask', 'feel'].includes(M.lastMove) && !qaDone) { D.sad += 6; n.att = mC(n.att - 5); D.aff -= 1; R.push({ k: 'dry' }); }
   if (M.pm.burst > 7) { R.push({ k: 'spam' }); D.anger += 3; }
   if (has('greet') && !R.length) R.push({ k: 'greet' });
-  if (has('bye')) R.push({ k: 'bye' });
+  if (has('bye') || tmp.close) R.push({ k: 'bye' });
   if (has('agree') && !R.length) R.push({ k: 'ack' });
   // طابع كلامك ده بيعجبها؟ (نفس شخصيتها في الشارع)
   let best = null, bc = 0; for (const [s, c] of Object.entries(f.styles)) if (c > bc) { bc = c; best = s; }
   if (best) { if (likes(best)) { D.aff += 1.5 + Math.min(2, bc * 0.5); D.joy += 3; } else if (dislikes(best)) { D.aff -= 1.5 + Math.min(2, bc * 0.5); D.anger += 4; } }
-  if (!R.length) R.push({ k: f.question ? 'answer' : f.len >= 5 ? 'listen' : 'ack', topic: Object.keys(f.topics)[0] });
+  if (!R.length) R.push(f.question ? { k: 'uq' } : { k: f.len >= 5 ? 'listen' : 'ack', topic: Object.keys(f.topics)[0] });
+  // الإجابة الأول، وبعدها رد الفعل
+  R.sort((a, b) => (a.k === 'qa' ? -1 : 0) - (b.k === 'qa' ? -1 : 0));
   M.lastHeard = f;
   return mindApply(g, M, D, R, f, ctx);
 }
@@ -10504,7 +10512,11 @@ function mindPlan(g, heard, ctx = {}) {
   const M = mindOf(g), e = M.e, p = M.p, R = heard.R, hh = hourNow(), L = LIFE();
   const plan = { reacts: R.slice(0, 2), move: null, close: false, sleepy: !ctx.live && (hh >= 1 && hh < 7), cold: e.anger > 60 && !R.some(r => r.k === 'forgive'), bubbles: 1 };
   if (plan.cold) { plan.reacts = R.filter(r => ['rude', 'explicit', 'apology_partial', 'lie', 'hurt', 'jealous', 'insulted'].includes(r.k)).slice(0, 1); if (!plan.reacts.length) plan.reacts = [{ k: 'cold' }]; return plan; }
-  if (R.some(r => r.k === 'bye')) { plan.close = true; return plan; }
+  if (R.some(r => r.k === 'bye')) { plan.close = true; plan.reacts = R.filter(r => r.k === 'qa' || r.k === 'bye').slice(0, 1); return plan; }
+  if (R[0] && R[0].k === 'qa') {
+    plan.reacts = [R[0], ...R.slice(1).filter(r => ['forgive', 'apology_partial', 'jealous', 'hurt', 'lie', 'compliment', 'love_back', 'miss_back', 'too_soon', 'insulted', 'wife_ok', 'wife_fight'].includes(r.k))].slice(0, 2);
+    if (R[0].back && Math.random() < 0.75) { plan.move = 'back'; plan.back = R[0].back; return plan; }   // ترجّعلك نفس السؤال
+  }
   if (R.some(r => ['rude', 'explicit'].includes(r.k))) { plan.close = e.anger > 70 || g.stage < 2; return plan; }
   // الحركة الجاية: بتختارها حسب شخصيتها ومزاجها واللي اتعلمته عنك
   const C = {
@@ -10518,7 +10530,9 @@ function mindPlan(g, heard, ctx = {}) {
   if (M.lastMove && C[M.lastMove]) C[M.lastMove] *= 0.45;   // ماتكررش نفس الأسلوب ورا بعض
   const day = mindDay(g); if ((day.shared || []).length >= 2) C.share = 0;
   if (R.some(r => ['lie', 'hurt', 'jealous', 'insulted', 'apology_partial', 'dry', 'not_now'].includes(r.k)) || e.anger > 25) { C.tease = C.feel = C.suggest = C.share = 0; C.none += 0.6; }
-  if (R.some(r => ['date_yes', 'date_no', 'too_soon', 'lie'].includes(r.k))) C.suggest = 0;
+  if (R.some(r => ['date_yes', 'date_no', 'too_soon', 'lie'].includes(r.k)) || LIFE().date) C.suggest = 0;
+  if (R.some(r => r.k === 'qa' && /[؟?]$/.test(r.txt))) C.ask = 0;   // هي لسه سايلاك
+  if (heard.R.some(r => ['qa', 'answer', 'uq'].includes(r.k))) { C.tease *= 0.3; C.share *= 0.6; C.feel *= 0.6; }
   let tot = 0; for (const v of Object.values(C)) tot += v; let x = Math.random() * tot;
   for (const [k, v] of Object.entries(C)) { x -= v; if (x <= 0) { plan.move = k === 'none' ? null : k; break; } }
   plan.bubbles = 1 + (plan.move ? 1 : 0);
@@ -10558,6 +10572,186 @@ function wifeResolve(g, f) {
   if (bad) { W.sat = mC(W.sat - 8); M.e.anger = mC(M.e.anger + 15); M.e.sad = mC(M.e.sad + 10); return { k: 'wife_fight' }; }
   W.ev = k; return null;
 }
+// ================= المخ: فهم السؤال والطلب والرد عليه هو بالظبط =================
+// قواعد كتير بالمصري: أسئلة عنها (معلومات ثابتة)، أسئلة آه/لأ (من مشاعرها وحالتها والساعة)، رأيها، «ده ولا ده»،
+// طلبات بتنفذها (نكتة، حكاية، صحيني، نامي، اعمليلي أكل، نتقابل بكرة الساعة ٧ في الكافيه)، وردك على سؤالها هي.
+const QA_JOKES = [
+  'مرة واحد بخيل اتجوز… خلّف بنت واحدة عشان يوفّر في المعازيم 😂',
+  'مرة واحد صعيدي فتح محل عصير… سمّاه «عصير الكتب» 😂',
+  'مرة واحدة ست حماتها ماتت، كتبت على الفيسبوك: «تعازينا الحارة… ومش زعلانين أوي» 😂',
+  'مرة واحد كسلان بيقول لصاحبه: نفسي أتعلم السباحة بس من غير ما أنزل الميه 😂',
+  'مرة نملة بتجري ورا فيل، الفيل سألها: عايزة إيه؟ قالتله: إنت لابس الشبشب بتاعي 😂',
+  'واحد بيقول لصاحبه: أنا مراتي ملاك… قاله: يا بختك، مراتي لسه عايشة 😂',
+  'مرة واحد اتصل بالمطافي قالهم: الحقوني بيتي بيولّع! قالوله: نوصلك إزاي؟ قالهم: إنتو معندكوش العربية الحمرا؟ 😂',
+];
+const QA_STORIES = [
+  'وأنا صغيرة كنت فاكرة إن القمر ماشي ورانا في العربية، وكنت بزعل لما بيستخبى ورا العمارات 😂',
+  'مرة في الكلية ركبت الأتوبيس الغلط وفضلت فيه ساعتين لحد آخر الخط 🙈',
+  'جدتي كانت بتحكيلنا إن جدي كان بيعدّي قدام بيتهم كل يوم سنة كاملة قبل ما يتجرأ ويتقدّم 🥰',
+  'مرة عملت كيكة لعيد ميلاد ماما ونسيت السكر… أكلوها كلهم وقالوا تحفة عشان مزعلش 😂',
+  'وأنا في إعدادي اتخانقت مع صاحبتي سنة كاملة عشان قلم، ودلوقتي هي أعز صاحبة ليا 😄',
+];
+const QA_COLOR = ['الموف', 'الأزرق', 'البينك', 'الأبيض', 'الأسود', 'البيج', 'الأخضر الزيتي'];
+const QA_DISH = ['محشي', 'ملوخية بالفراخ', 'مكرونة بالبشاميل', 'كفتة بالطحينة', 'رز بالشعرية وبامية', 'فطير', 'سمك مشوي'];
+// كلمة ثابتة لكل بنت لنفس السؤال (عشان ماتغيّرش رأيها كل شوية)
+function qaHash(g, s) { let x = g.id * 7919; for (const ch of String(s)) x = (x * 31 + ch.charCodeAt(0)) % 1000003; return x; }
+const qaPickFix = (g, key, arr) => arr[qaHash(g, key) % arr.length];
+// مواعيد: «بكرة الساعة ٧ بالليل»
+function qaTime(t) {
+  let day = /بكره|بكرا/.test(t) ? 1 : /النهارده|دلوقتي|انهارده|الليله/.test(t) ? 0 : null, hr = null, m;
+  if ((m = t.match(/الساعه\s*(\d{1,2})(?:[:.](\d{2}))?/)) || (m = t.match(/\b(\d{1,2})\s*(?:بالليل|المسا|مساء|العصر|الضهر|الصبح)/))) { hr = +m[1]; if (/بالليل|المسا|مساء|العصر/.test(t) && hr < 12) hr += 12; else if (!/الصبح/.test(t) && hr >= 1 && hr <= 9) hr += 12; }
+  return { day, hr };
+}
+function qaVenue(t) {
+  if (/سينما|فيلم/.test(t)) return 'cinema';
+  if (/الامرا|عشا فاخر|شموع|مطعم شيك/.test(t)) return 'fancy';
+  if (/فول|طعميه|ابو علي|كشري/.test(t)) return 'foul';
+  if (/حديقه|جنينه|الحديقه|نتمشي في/.test(t) && !/مول/.test(t)) return 'park';
+  if (/مول|شوبنج/.test(t)) return 'mall';
+  if (/كافيه|قهوه|كوفي|ليالي/.test(t)) return 'cafe';
+  return null;
+}
+// تخطيط خروجة من الكلام (نفس قواعد شاشة العزومة)
+function qaPlanDate(g, t) {
+  const L = LIFE(); if (L.date || g.stage < 2 || g.stage >= 6) return null;
+  const v = qaVenue(t) || g.venues[0] || 'cafe', tm = qaTime(t);
+  let day = tm.day == null ? (hourNow() < 18 ? 0 : 1) : tm.day, hr = tm.hr == null ? (day === 0 ? 20 : 19) : tm.hr;
+  if (hr < 10 || hr > 22) return { no: 'الساعة دي متأخرة/بدري أوي 😅 خليها من 10 الصبح لـ10 بالليل' };
+  if (day === 0 && hr <= hourNow()) day = 1;
+  const accept = g.mood < 2 && Math.random() < 0.55 + g.aff / 80;
+  if (!accept) { gAdd(g, -1); return { no: g.mood === 2 ? 'مش قادرة أخرج معاك دلوقتي 😒' : pick(['معلش مش هينفع المرة دي', 'خليها مرة تانية 🙂']) }; }
+  L.date = { gid: g.id, v, at: (state.day + day) * 1440 + hr * 60, state: 'planned' }; g.touch = state.day; g.want = 'none';
+  const when = `${day === 0 ? 'النهارده' : 'بكرة'} الساعة ${hr > 12 ? hr - 12 : hr}${hr >= 12 ? ' بالليل' : ' الصبح'}`;
+  toast(`🌹 ${g.name} وافقت! ${VENUES[v].icon} ${VENUES[v].name} · ${when}`, 'good', 6000);
+  return { yes: `اتفقنا 😍 ${when} في ${VENUES[v].name}`, v, when };
+}
+// ---- القواعد: [regex على الكلام المتطبّع، دالة الرد] (الأول اللي يطابق هو اللي بيرد) ----
+const QA_RULES = [
+  // ===== طلبات =====
+  [/(قوليلي|احكيلي|قولي|عايز|هاتي)\s*(نكته|حاجه تضحك)|ضحكيني/, (g, M) => mPickFresh(M, QA_JOKES)],
+  [/احكيلي\s*(حكايه|قصه|حاجه عنك|عن نفسك|موقف)|احكيلي حاجه/, (g, M) => mPickFresh(M, QA_STORIES)],
+  [/غنيلي|غني لي|سمعيني صوتك/, (g, M) => pick([`صوتي وحش والله 😂 بس بحب أدندن أغاني ${M.per.singer}`, 'لا لا كسوف 🙈 لما نتقابل يمكن']) ],
+  [/(صحيني|صحيني بكره|كلميني الصبح|رني عليا الصبح)/, (g, M) => { M.wake = state.day + 1; return pick(['حاضر، هصحيك الصبح ☀️', 'ماشي، أول ما أصحى هكلمك 😄']); }],
+  [/^(نامي|روحي نامي|يلا نامي|ادخلي نامي)/, (g, M, f, ctx) => { ctx.close = true; return pick(['حاضر 😴 تصبح على خير', 'ماشي، وإنت كمان نام بدري 🌙']); }],
+  [/(استنيني|استني عليا)/, () => pick(['مستنياك 🙂', 'ماشي بس متتأخرش 😄'])],
+  [/(قوليلي|قولي)\s*(بحبك|كلمه حلوه|حاجه حلوه)/, g => g.aff >= 55 || g.stage >= 4 ? pick(['بحبك ❤️', 'إنت أحلى حاجة في يومي 🥰']) : pick(['لما تستاهلها 😏', 'هههه لسه بدري 🙈'])],
+  [/(ابعتي|ابعتيلي)\s*(لوكيشن|عنوان|العنوان)|عنوانك ايه|ساكنه فين بالظبط/, g => g.stage >= 5 ? 'إنت عارف البيت يا حبيبي 😄' : 'لا طبعًا 😅 لسه بدري'],
+  [/(اعمليلي|اعملي لي|عايز اكل|نفسي في)\s*(اكل|غدا|عشا|محشي|ملوخيه|مكرونه|فطار|كيكه|شاي|قهوه)/, (g, M, f) => { if (g.stage < 6) return pick(['هههه لما نتجوز ابقى أعملك 😂', 'وأنا مالي 😂 روح كُل']); if (M.wife) M.wife.home = mC(M.wife.home + 10); M.needs.att = mC(M.needs.att + 5); const d = (f.text.match(/محشي|ملوخيه|مكرونه|كيكه|شاي|قهوه/) || [qaPickFix(g, 'dish' + state.day, QA_DISH)])[0]; return pick([`حاضر يا حبيبي، هعملك ${d} 😋`, `من عنيا، ${d} جاي حالًا`]); }],
+  [/(نتقابل|نخرج|تيجي نخرج|اعزمك|نروح).*(بكره|النهارده|الساعه|الليله|كافيه|سينما|مول|حديقه|فول|عشا)/, (g, M, f) => { const r = qaPlanDate(g, f.text); if (!r) return LIFE().date ? 'ما إحنا متفقين على خروجة أصلًا 😄' : null; return r.yes || r.no; }],
+  [/(سامحيني|متزعليش مني|حقك عليا)/, null],   // الاعتذار بيتعامل في المشاعر
+  // ===== أسئلة آه/لأ من حالتها =====
+  [/(بتحبيني|انتي بتحبيني|حباني|بتعزيني)/, g => g.aff >= 60 || g.stage >= 4 ? pick(['أيوه بحبك ❤️', 'إنت لسه بتسأل؟ 🥺❤️']) : g.stage >= 3 && g.aff >= 35 ? 'بحبك… بس لسه بتعرف عليك أكتر 🙈' : g.aff < 15 ? 'لأ 😐' : 'لسه بدري على السؤال ده 😅'],
+  [/(وحشتك|انا وحشتك|وحشتك ولا)/, (g, M) => M.e.long > 30 || g.aff > 55 ? pick(['أيوه وحشتني أوي 🥺', 'جدًا… كنت لسه هكلمك']) : pick(['شوية 😄', 'يعني… 🙈'])],
+  [/(زعلانه|متضايقه|مالك|زعلتي|انتي كويسه)/, (g, M) => { const bad = M.mem.slice().reverse().find(m => ['rude', 'explicit', 'jealous', 'lie'].includes(m.k) && state.day - m.d <= 2); if (M.e.anger > 40 || M.e.jeal > 40) return `أيوه زعلانة${bad ? '… عشان ' + bad.txt.replace(/^قال/, 'قلت').replace(/^شتمني/, 'شتمتني').replace(/^جاب/, 'جبت') : ' منك'} 😒`; if (M.e.sad > 40) return `شوية مخنوقة… ${mindDay(g).good ? 'من غير سبب' : 'يومي كان صعب'} 😔`; return pick(['لا الحمد لله كويسة 🙂', 'لا خالص، مالي؟ 😄']); }],
+  [/(فاضيه|انتي فاضيه|فاضيلي)/, g => { const S = G_SPOTS[g.spot] || {}, h = hourNow(); return h >= (S.from || 9) && h < (S.to || 17) && g.spot !== 'kiosk' ? 'لا لسه في الشغل 😩 بس بكلمك' : h >= 0 && h < 7 ? 'المفروض نايمة 😴' : 'آه فاضية، ليه؟ 😄'; }],
+  [/(نمتي|صاحيه|لسه صاحيه|صحيتي)/, () => { const h = hourNow(); return h >= 1 && h < 7 ? 'لسه صاحية مش جايلي نوم 🌙' : h < 11 ? 'صحيت من شوية ☀️' : 'صاحية من بدري طبعًا 😄'; }],
+  [/(اتغديتي|اكلتي|اتعشيتي|فطرتي|كلتي)/, (g, M) => { const h = hourNow(), meal = h < 11 ? 'فطرت' : h < 18 ? 'اتغديت' : 'اتعشيت'; return Math.random() < 0.7 ? `آه ${meal} ${qaPickFix(g, 'meal' + state.day + meal, [M.per.food, 'فول وطعمية', 'سندوتشات', 'أكل ماما'])} 😋 وإنت؟` : 'لسه والله 😩 جعانة'; }],
+  [/(مرتبطه|مخطوبه|في حد في حياتك|بتكلمي حد)/, g => g.stage >= 4 ? 'آه مرتبطة… بيك إنت 😄' : g.stage <= 1 ? 'ليه بتسأل؟ 😏' : 'لا مش مرتبطة 🙂'],
+  [/(بتصلي|بتصومي)/, g => g.likes.includes('traditional') ? 'الحمد لله مبفوتش فرض' : 'بحاول والله 🙂'],
+  [/(بتغيري|انتي غيوره)/, g => g.jealous > 0.6 ? 'آه بغير جدًا وماليش دعوة 😤' : g.jealous > 0.4 ? 'شوية 😄' : 'لا مش بتاعة غيرة'],
+  [/(بتعرفي تطبخي|بتطبخي)/, (g, M) => M.p.C > 0.5 || g.likes.includes('traditional') ? `آه وبعمل ${M.per.food} تحفة 😋` : 'بعمل حاجات بسيطة 😅 بتعلم'],
+  [/(بتسوقي|معاكي رخصه)/, (g, M) => M.p.E > 0.55 ? 'آه بسوق 😎' : 'لا لسه بخاف 😅'],
+  [/(هتعملي ايه|ناويه على ايه|خطتك ايه)\s*(بكره|النهارده|بالليل|الجمعه|الويك)?/, (g, M) => { const S = G_SPOTS[g.spot] || {}; return /بكره/.test(M._t) ? `${S.job && g.spot !== 'kiosk' ? 'عندي شغل الصبح' : 'هساعد ماما'}، وبالليل ${pick(['هقعد مع أهلي', 'ممكن أخرج مع ' + M.per.friend, 'فاضية 😏'])}` : pick([`هتفرج على ${M.per.genre} وأنام بدري`, `هقعد مع ماما شوية`, `يمكن أنزل مع ${M.per.friend}`]); }],
+  // ===== هدايا وخروج =====
+  [/(عايزه هديه|نفسك في هديه|اجيبلك ايه|تحبي هديه ايه|اهاديكي بايه)/, g => `نفسي في ${GIFTS[g.favGift] ? GIFTS[g.favGift].name : 'بوكيه ورد'} 🙈 بس أي حاجة منك حلوة`],
+  [/(نخرج فين|نروح فين|تحبي نروح فين)/, g => `نروح ${VENUES[g.venues[0] || 'cafe'].name} 😍`],
+  [/(امتي (نتقابل|اشوفك|نخرج)|هشوفك امتي)/, g => LIFE().date ? 'ما إحنا متفقين 😄' : g.stage < 2 ? 'نشوف 😅' : pick(['بكرة الساعة 7؟ 😄', 'النهارده بالليل لو فاضي']) ],
+  // ===== معلومات عنها =====
+  [/(اسمك ايه|اسمك)/, g => `${g.name} 🙂`],
+  [/(عندك كام سنه|سنك|عمرك كام)/, g => `عندي ${g.age} سنة`],
+  [/(ساكنه فين|انتي منين|عايشه فين|ساكنه في)/, (g, M) => `ساكنة في ${M.per.area}`],
+  [/(بتشتغلي ايه|شغلك ايه|شغاله ايه|بتشتغلي فين|وظيفتك)/, g => { const S = G_SPOTS[g.spot] || {}; return S.job ? `أنا ${S.job}` : 'قاعدة في البيت حاليًا'; }],
+  [/(اكلتك|بتحبي تاكلي|اكلك المفضل)/, (g, M) => `${M.per.food} طبعًا 😋`],
+  [/(بتسمعي مين|مطربك|مغنيك|بتحبي تسمعي)/, (g, M) => `${M.per.singer} 🎶`],
+  [/(بتشجعي|انتي اهلاويه|انتي زملكاويه)/, (g, M) => M.per.team ? `${M.per.team === 'الأهلي' ? 'أهلاوية' : 'زملكاوية'} طبعًا 😄` : 'مبفهمش في الكورة 😂'],
+  [/(لونك المفضل|بتحبي لون)/, g => `${qaPickFix(g, 'color', QA_COLOR)} 💜`],
+  [/(هوايتك|وقت فراغك|بتحبي تعملي ايه)/, (g, M) => `بحب ${M.per.hobby}`],
+  [/(حلمك|نفسك في ايه|امنيتك)/, (g, M) => `نفسي ${M.per.dream}`],
+  [/(صاحبتك|اقرب صاحبه|اعز صاحبه)/, (g, M) => `${M.per.friend}، دي أختي اللي ماجابتهاش أمي 😄`],
+  [/(عندك اخوات|اخواتك)/, g => qaPickFix(g, 'sib', ['عندي أخت صغيرة وأخ في الجيش', 'أنا الكبيرة وعندي أخين', 'عندي أخ واحد أكبر مني', 'أنا وحيدة 😄'])],
+  [/(باباكي|مامتك)\s*(بيشتغل|بتشتغل|بيعمل)/, g => qaPickFix(g, 'par', ['بابا ' + (g.cls === 'rich' ? 'رجل أعمال' : g.cls === 'mid' ? 'مهندس' : 'موظف') + ' وماما ربة بيت', 'بابا على المعاش وماما مدرسة'])],
+  [/(برجك)/, g => qaPickFix(g, 'zodiac', ['أسد 🦁', 'عذراء', 'ميزان ♎', 'حوت 🐟', 'جوزا', 'عقرب 🦂'])],
+  [/(فيلمك|مسلسلك|بتتفرجي على ايه)/, (g, M) => `بحب ${M.per.genre}`],
+  [/(نفسك تسافري فين|بتحبي السفر)/, (g, M) => `نفسي أروح ${M.per.dest} ✈️`],
+  // ===== رأيها =====
+  [/(رايك|رأيك)\s*(فيا|فيه انا|فيني|في انا)|شايفاني ازاي|بتشوفيني ازاي/, g => g.aff >= 50 ? pick(['إنت حد جميل بجد ❤️', 'إنت أحسن حاجة حصلتلي']) : g.aff >= 20 ? pick(['شكلك جدع وابن ناس 🙂', 'لطيف ودمك خفيف 😄']) : 'لسه مكوّنتش رأي 😐'],
+  [/(رايك|رأيك)\s*(في|ف)\s*(.+)/, (g, M, f) => { const x = (f.text.match(/(?:رايك|رأيك)\s*(?:في|ف)\s*(.+)/) || [])[1] || ''; if (/^(يا|انا|فيا|ني)$|^فيا/.test(x.trim()) || /^انا/.test(x)) return g.aff >= 50 ? pick(['إنت حد جميل بجد ❤️', 'إنت أحسن حاجة حصلتلي']) : g.aff >= 20 ? pick(['شكلك جدع وابن ناس 🙂', 'لطيف 😄']) : 'لسه مكوّنتش رأي 😐'; const P = M.per; if ([P.food, P.singer, P.dest, P.genre].some(v => v && NLU.has(x, v.replace(/^ال/, '')))) return pick([`بحبه جدًا 😍`, `ده المفضل عندي`]); const like = qaHash(g, x) % 3; return like === 0 ? pick([`${x}؟ حلو أوي 👌`, 'عاجبني جدًا']) : like === 1 ? pick(['مش أوي بصراحة 😅', 'مش بحب ده أوي']) : pick(['عادي يعني', 'مش بتاعي بس مش وحش']); }],
+  // «ده ولا ده»
+  [/(.+)\s+ولا\s+(.+)/, (g, M, f) => { const m = f.text.replace(/^(بتحبي|تحبي|انتي|تفضلي|احسن)\s+/, '').match(/^(.+?)\s+ولا\s+(.+?)$/); if (!m || m[1].split(' ').length > 4 || m[2].split(' ').length > 4) return null; const a = m[1].trim(), b = m[2].trim(), ch = qaHash(g, a + '|' + b) % 2 ? a : b; return pick([`${ch} طبعًا 😄`, `أكيد ${ch}`, `${ch}… مفيش مقارنة`]); }],
+  // «بتحبي الأكل إيه؟» = سؤال عن النوع
+  [/(بتحبي|تحبي)\s*(الاكل|اكل|تاكلي|الاكلات)\s*(ايه|اي)?$/, (g, M) => `${M.per.food} طبعًا 😋`],
+  [/(بتحبي|تحبي)\s*(الاغاني|اغاني|تسمعي|المزيكا)\s*(ايه|اي)?$/, (g, M) => `بحب ${M.per.singer} 🎶`],
+  [/(بتحبي|تحبي)\s*(الافلام|افلام|المسلسلات|تتفرجي)\s*(ايه|اي)?$/, (g, M) => `بحب ${M.per.genre}`],
+  [/(بتحبي|تحبي)\s*(الالوان|لون|الوان)\s*(ايه|اي)?$/, g => `${qaPickFix(g, 'color', QA_COLOR)} 💜`],
+  [/(بتحبي|تحبي)\s+.+\s+(ايه|اي)$/, (g, M) => `بحب ${M.per.hobby} و${M.per.food} 😄`],
+  // «بتحبي X؟»
+  [/^(بتحبي|انتي بتحبي|تحبي)\s+(.+)/, (g, M, f) => { const x = (f.text.match(/(?:بتحبي|تحبي)\s+(.+)/) || [])[1] || ''; if (/^(ايه|اي)$/.test(x.trim())) return `بحب ${M.per.hobby} و${M.per.food} و${M.per.singer} 😄`; const P = M.per; if ([P.food, P.singer, P.dest, P.genre, P.hobby].some(v => v && NLU.has(x, v.replace(/^ال/, '')))) return pick(['بموت فيه 😍', 'جدًا! ده المفضل عندي']); return qaHash(g, x) % 3 ? pick(['آه جدًا 😄', 'آه بحب', 'آه حلو']) : pick(['لا مش أوي 😅', 'مش بتاعي']); }],
+];
+// ردّك على سؤالها هي (فاكرة هي سألتك إيه)
+const QA_FOLLOW = {
+  name: (g, M, f) => f.facts.name || f.len > 2 ? null : 'اسم حلو 🙂',
+  job: (g, M, f) => pick(['ربنا يوفقك فيها 👌', 'شغلانة حلوة', 'شكلها متعبة بس حلوة']),
+  eat: (g, M, f) => /^(لا|لأ|لسه|مكلتش)/.test(f.text) || /لسه|مكلتش|ماكلتش/.test(f.text) ? pick(['طب قوم كُل بقى 😒', 'إزاي لسه؟! كُل حاجة يلا']) : pick(['بالهنا والشفا 😋', 'بألف هنا 😄 أكلت إيه؟']),
+  day: (g, M, f) => f.sent < -0.2 || /متعب|وحش|زفت|صعب|تعبان/.test(f.text) ? pick(['ألف سلامة عليك 😔 حصل إيه؟', 'معلش، بكرة أحسن ❤️']) : pick(['الحمد لله 🙂', 'حلو، يا رب دايمًا 😊']),
+  team: (g, M, f) => { const his = /اهلي|اهلاوي/.test(f.text) ? 'الأهلي' : /زمالك|زملكاوي/.test(f.text) ? 'الزمالك' : null; if (!his) return pick(['مبتشجعش حد؟ 😄', 'حلو']); M.facts.team = his; return M.per.team ? (M.per.team === his ? 'يا سلام! نفس الفريق 😍' : 'لا بقى 😤 إحنا كده أعداء 😂') : 'أنا مبفهمش في الكورة بس هشجع معاك 😄'; },
+  music: (g, M, f) => NLU.has(f.text, M.per.singer) ? 'وأنا كمان بموت فيه 😍' : pick(['ذوقك حلو 🎶', `حلو، بس أنا بتاعة ${M.per.singer}`]),
+  travel: (g, M, f) => pick(['حلو أوي! خدني معاك 😄', `حلو، وأنا نفسي أروح ${M.per.dest}`]),
+  film: (g, M, f) => pick(['حلو؟ أتفرج عليه؟', 'سمعت عنه، هشوفه 😄']),
+  free: (g, M, f) => pick([`حلو، أنا بحب ${M.per.hobby}`, 'حلو أوي 😄']),
+  sib: (g, M, f) => pick(['ربنا يخليهملك 🙂', 'حلو، أنا بحب العيلة الكبيرة']),
+  dream: (g, M, f) => pick(['ربنا يحققلك اللي نفسك فيه 🤲', 'هتوصل، أنا واثقة فيك']),
+  think: (g, M, f) => /^(اه|ايوه|طبعا|اكيد|علي طول|دايما)/.test(f.text) || f.intents.miss || f.intents.love ? pick(['🙈❤️', 'وأنا كمان والله 🥺']) : /^(لا|لأ)/.test(f.text) ? 'ماشي… 😒' : null,
+  meet: (g, M, f) => { if (/^(لا|لأ|مش)/.test(f.text) || !(/^(اه|ايوه|ماشي|اكيد|يلا|تمام|موافق|اوك|بكره|النهارده)/.test(f.text) || /الساعه\s*\d/.test(f.text))) return null; const r = qaPlanDate(g, f.text); return r ? r.yes || r.no : null; },
+  eat_home: (g, M, f) => pick(['حاضر، هعملك اللي بتحبه 😋', 'ماشي يا حبيبي']),
+  come: (g, M, f) => /^(لا|لأ)|هتاخر|متاخر/.test(f.text) ? 'ماشي… متتأخرش أوي 😔' : 'مستنياك 🥰',
+};
+// بتحاول تفهم: سؤال/طلب/رد على سؤالها
+function qaAnswer(g, f, ctx = {}) {
+  const M = mindOf(g), t = f.text; M._t = t;
+  // «وإنتي؟» = نفس السؤال اللي هي سألته
+  if (/^(و?انتي|وانتي كمان|وانتي ايه|وانت|وانتي بقي)$/.test(t.trim()) && M.lastQ) { const tp = { eat: 'food', day: 'day', team: 'football', music: 'music', travel: 'travel', film: 'movies', free: null, sib: null, dream: 'dreams', job: 'work', name: null }[M.lastQ.k]; M.lastQ = null; if (tp) return { txt: mAnswer(g, tp, f) }; }
+  for (const [re, fn] of QA_RULES) {
+    if (!re.test(t)) continue;
+    if (!fn) return null;
+    const txt = fn(g, M, f, ctx); if (txt) return { txt };
+  }
+  // رد على سؤالها
+  if (M.lastQ && M.lastQ.n === M.pm.n - 1 && !f.question && !f.dry && !(f.laugh && f.len <= 1)) { const fn = QA_FOLLOW[M.lastQ.k]; const k = M.lastQ.k; M.lastQ = null; if (fn) { const txt = fn(g, M, f); if (txt) return { txt, follow: k }; } }
+  return null;
+}
+// كلامك عن حاجة (مش سؤال): رد مناسب للموضوع
+const QA_TOPIC_REPLY = {
+  food: g => pick(['بالهنا والشفا 😋', `يا سلام، وأنا بموت في ${mindOf(g).per.food}`, 'جوعتني 😩']),
+  football: g => { const T = mindOf(g).per.team; return T ? pick([`إنت عارف إني ${T === 'الأهلي' ? 'أهلاوية' : 'زملكاوية'} 😄`, 'الكورة دي واكلة دماغكم 😂']) : 'مبفهمش في الكورة بس قولي مين كسب 😄'; },
+  movies: () => pick(['حلو؟ أتفرج عليه؟', 'ابقى رشحلي حاجة حلوة 😄']),
+  music: g => pick(['ذوقك حلو 🎶', `وأنا بسمع ${mindOf(g).per.singer} على طول`]),
+  travel: g => pick(['يا بختك! خدني معاك 😄', `نفسي أروح ${mindOf(g).per.dest}`]),
+  work: () => pick(['ربنا يوفقك 💪', 'ربنا يقويك، متتعبش نفسك أوي', 'شاطر 👏']),
+  family: () => pick(['ربنا يخليهملك 🙂', 'سلّملي عليهم']),
+  weather: () => pick(['آه الجو النهارده غريب 😅', 'خلّي بالك من نفسك من الجو ده']),
+  shopping: () => pick(['اشتريت إيه؟ 😄', 'أنا بحب الشوبنج موت']),
+  cars: () => pick(['عربيتك حلوة؟ 😄', 'خلي بالك وإنت سايق']),
+  health: () => pick(['ألف سلامة عليك 😔', 'روح للدكتور ومتهملش']),
+  study: () => pick(['ربنا يوفقك 🤲', 'ذاكر كويس 😄']),
+  dreams: () => pick(['ربنا يحققلك اللي نفسك فيه 🤲', 'هتوصل إن شاء الله']),
+};
+
+// بعد ما تجاوب سؤالك بتسألك نفس السؤال
+const QA_BACK = [
+  [/(اسمك ايه|اسمك)/, 'وإنت اسمك إيه؟', 'name', M => !M.facts.name],
+  [/(عندك كام سنه|سنك|عمرك كام)/, 'وإنت عندك كام سنة؟', null, M => !M.facts.age],
+  [/(ساكنه فين|انتي منين|عايشه فين)/, 'وإنت ساكن فين؟', null, M => !M.facts.place],
+  [/(بتشتغلي ايه|شغلك ايه|شغاله ايه|وظيفتك)/, 'وإنت بتشتغل إيه؟', 'job', M => !M.facts.job],
+  [/(بتسمعي مين|مطربك|بتحبي تسمعي)/, 'وإنت بتسمع مين؟', 'music'],
+  [/(بتشجعي)/, 'وإنت بتشجع مين؟', 'team', M => !M.facts.team],
+  [/(اكلتك|بتحبي تاكلي)/, 'وإنت أكلتك إيه؟', null],
+  [/(هوايتك|وقت فراغك)/, 'وإنت بتعمل إيه في وقت فراغك؟', 'free'],
+  [/(حلمك|نفسك في ايه)/, 'وإنت نفسك في إيه؟', 'dream'],
+  [/(نفسك تسافري)/, 'وإنت نفسك تسافر فين؟', 'travel'],
+  [/(اتغديتي|اكلتي|اتعشيتي)/, null, 'eat'],
+  [/(عندك اخوات)/, 'وإنت عندك إخوات؟', 'sib'],
+];
+function qaBackOf(g, t) { const M = mindOf(g); for (const [re, q, k, cond] of QA_BACK) if (re.test(t) && (!cond || cond(M))) return { q, k }; return null; }
 // ================= المخ: كلامها بالمصري (من غير موديل) =================
 // بنك جمل كبير مرتّب حسب رد الفعل والمرحلة والمزاج، ومعلومات حياتها، وذاكرتها عنك، ومن غير ما تكرر نفسها
 const SAY = {
@@ -10666,7 +10860,10 @@ function mindSay(g, plan, f) {
     let s = '';
     switch (r.k) {
       case 'greet': s = e.anger > 50 ? 'أهلًا' : mPickFresh(M, stageKey(SAY.greet, st)); break;
-      case 'answer': s = mAnswer(g, r.topic || 'day', f); break;
+      case 'answer': s = mAnswer(g, r.topic || (f && f.question ? null : 'day'), f); break;
+      case 'qa': s = r.txt; break;
+      case 'topic': s = QA_TOPIC_REPLY[r.topic] ? QA_TOPIC_REPLY[r.topic](g) : ''; break;
+      case 'uq': s = qaUnknown(g, f); break;
       case 'compliment': s = mPickFresh(M, r.person ? SAY.compliment_person : st >= 4 && Math.random() < 0.5 ? SAY.compliment4 : SAY.compliment); break;
       case 'miss_back': s = mPickFresh(M, r.long > 40 ? SAY.miss_back_long : SAY.miss_back); break;
       case 'listen': s = mPickFresh(M, r.topic === 'work' ? SAY.listen_work : SAY.listen); break;
@@ -10685,29 +10882,54 @@ function mindSay(g, plan, f) {
   switch (plan.move) {
     case 'ask': {
       const f2 = M.facts;
-      if (!f2.name && st <= 3 && Math.random() < 0.6) mv = 'إنت اسمك إيه صحيح؟';
-      else if (!f2.job && st <= 3 && Math.random() < 0.5) mv = 'إنت بتشتغل إيه؟';
+      if (!f2.name && st <= 3 && M.askedName !== state.day && Math.random() < 0.6) { mv = 'إنت اسمك إيه صحيح؟'; M.askedName = state.day; }
+      else if (!f2.job && st <= 3 && M.askedJob !== state.day && Math.random() < 0.5) { mv = 'إنت بتشتغل إيه؟'; M.askedJob = state.day; }
       else if (f2.likes && f2.likes.length && Math.random() < 0.15) mv = `إنت مش قلتلي إنك بتحب ${pick(f2.likes)}؟ 😄`;
       else mv = mPickFresh(M, st === 6 ? ASK_BANK.wife : st >= 4 && Math.random() < 0.4 ? ASK_BANK.close : ASK_BANK.any);
       break;
     }
-    case 'share': { const day = mindDay(g), sh = day.shared || (day.shared = []), i = [0, 1].find(k => !sh.includes(k)); if (i != null) { sh.push(i); mv = pick(['على فكرة النهارده ', 'تعرف؟ النهارده ', 'النهارده ']) + day.ev[i]; } break; }
+    case 'share': { const day = mindDay(g), sh = day.shared || (day.shared = []), i = [0, 1].find(k => !sh.includes(k)); if (i != null) { sh.push(i); mv = (/النهارده/.test(day.ev[i]) ? pick(['على فكرة ', 'تعرف؟ ']) : pick(['على فكرة النهارده ', 'تعرف؟ النهارده ', 'النهارده '])) + day.ev[i]; } break; }
     case 'tease': mv = mPickFresh(M, TEASE); break;
     case 'feel': mv = mPickFresh(M, stageKey(FEEL, st)); break;
     case 'suggest': mv = mPickFresh(M, SUGGEST); g.want = 'date'; break;
     case 'sleep': mv = mPickFresh(M, SLEEP); plan.close = true; break;
+    case 'back': if (plan.back.q) mv = plan.back.q; if (plan.back.k) M.lastQ = { k: plan.back.k, at: absNow(), n: M.pm.n }; break;
   }
   if (mv) out.push(mFill(g, mv));
   M.lastMove = plan.move && plan.move !== 'sleep' ? plan.move : null;
-  return out.filter(Boolean).slice(0, 3);
+  const res = out.filter(Boolean).slice(0, 3), lastQ = res.slice().reverse().find(s => /[؟?]/.test(s));
+  if (lastQ && plan.move !== 'back') { const k = qaKeyOf(lastQ); if (k) M.lastQ = { k, at: absNow(), n: M.pm.n }; }
+  return res;
 }
 // هي اللي بتبدأ الكلام
+// سؤالها كان عن إيه (عشان تفهم ردك عليه)
+function qaKeyOf(q) {
+  const t = NLU.norm(q);
+  return /اتغديت|اكلت|اتعشيت|فطرت/.test(t) ? 'eat' : /يومك|عامل ايه|انت عامل/.test(t) ? 'day' : /بتشجع/.test(t) ? 'team' : /بتسمع/.test(t) ? 'music' : /تسافر/.test(t) ? 'travel' : /فيلم/.test(t) ? 'film'
+    : /وقت فراغك|بتحب تعمل/.test(t) ? 'free' : /اخوات/.test(t) ? 'sib' : /نفسك في/.test(t) ? 'dream' : /بتشتغل/.test(t) ? 'job' : /اسمك/.test(t) ? 'name' : /بتفكر فيا/.test(t) ? 'think'
+    : /هشوفك|هنتقابل|نخرج/.test(t) ? 'meet' : /اعملك ايه|العشا/.test(t) ? 'eat_home' : /هتيجي|جاي امتي/.test(t) ? 'come' : null;
+}
+// سؤال مش فاهماه كله: رد على قد نوع السؤال (بدل ما ترد في حاجة تانية)
+function qaUnknown(g, f) {
+  const t = f ? f.text : '', M = mindOf(g);
+  if (M.e.anger > 55) return pick(['مش فايقة للأسئلة دلوقتي', 'بعدين']);
+  if (/^ليه|\bليه\b/.test(t)) return pick(['مش عارفة بصراحة 😅', 'كده 😄', 'سؤال صعب… مش عارفة']);
+  if (/امتي/.test(t)) return pick(['قريب إن شاء الله', 'مش عارفة لسه، هقولك']);
+  if (/فين/.test(t)) return pick(['مش متأكدة', 'مش عارفة والله']);
+  if (/ازاي/.test(t)) return pick(['مش عارفة، إنت قولي 😄', 'بالراحة كده 😅']);
+  if (/مين/.test(t)) return pick(['مش عارفة مين 😅', 'مين ده؟']);
+  if (/كام/.test(t)) return pick(['مش فاكرة بالظبط 😅', 'كتير 😄']);
+  if (/^(هل|انتي|ينفع|ممكن|تقدري|عندك|بتعرفي)/.test(t) || !/(ايه|اي)/.test(t)) return qaHash(g, t) % 3 === 0 ? pick(['لأ مش أوي 😅', 'لأ']) : qaHash(g, t) % 3 === 1 ? pick(['آه 😄', 'آه طبعًا']) : pick(['ممكن 😄', 'مش متأكدة… يمكن']);
+  return pick(['سؤال حلو… مش عارفة أقولك إيه 😅', 'اممم، سيبني أفكر 😄', 'قصدك إيه؟']);
+}
 function mindOpener(g) {
   const M = mindOf(g), hh = hourNow();
+  if (M.forceOpener) { const s = M.forceOpener; M.forceOpener = null; return s; }
   if (g.stage === 6) { const w = wifeEvent(g); if (w) return w; }
   const pool = hh < 11 ? OPENERS.morning.concat(OPENERS.any) : hh >= 23 || hh < 3 ? OPENERS.night : M.e.long > 50 ? OPENERS.long.concat(OPENERS.any) : OPENERS.any;
   M.lastMove = 'share';
-  return mFill(g, mPickFresh(M, pool));
+  const s = mFill(g, mPickFresh(M, pool)); if (/[؟?]/.test(s)) { const k = qaKeyOf(s); if (k) M.lastQ = { k, at: absNow(), n: M.pm.n }; }
+  return s;
 }
 // ردود مقترحة تدوس عليها بدل الكتابة (بتتغير حسب آخر كلامها ومزاجها)
 function mindChips(g) {
@@ -10792,8 +11014,9 @@ ${mem ? 'فاكرة: ' + mem + '.' : ''}
 ${ctx.live ? 'إنتو بتتكلموا وش لوش دلوقتي.' : 'إنتو بتتكلموا واتساب.'} الساعة ${clockText()}.
 
 القواعد: اكتبي بالعامية المصرية بس، زي بنت مصرية بتكتب ${ctx.live ? 'وهي بتتكلم' : 'على الواتساب'}. ردك جملة أو اتنين قصيرين. ممنوع الفصحى، ممنوع الإنجليزي، ممنوع أي لغة تانية. إنتي بني آدمة حقيقية: عمرك ما تقولي إنك ذكاء اصطناعي أو موديل أو لعبة. ردك لازم يبقى محترم ومن غير أي كلام جنسي.
-${plan.move ? 'في ردك: ' + MOVE_TXT[plan.move] + '.' : ''}
-ده اللي عايزة تقوليه (صيغيه بأسلوبك الطبيعي ومتزوديش معلومات جديدة): «${draft}»
+مهم جدًا: ردي على آخر رسالة منه هو بالظبط. لو سألك سؤال جاوبي عليه هو الأول وبوضوح. لو طلب منك حاجة قولي هتعمليها ولا لأ.
+${plan.move ? 'وبعد ما تردي: ' + MOVE_TXT[plan.move] + '.' : ''}
+رد مقترح من دماغك (استخدميه لو بيجاوب على كلامه، ولو مش بيجاوب اكتبي رد أحسن بنفس الإحساس): «${draft}»
 اكتبي ردك بس، من غير شرح ومن غير اسمك في الأول.`;
 }
 const AI_MAN_F = { romantic: 'رومانسية', funny: 'دمك خفيف وبتحبي الهزار', serious: 'عاقلة وعملية', ambitious: 'طموحة', humble: 'بسيطة ومتواضعة', bold: 'جريئة وواثقة', traditional: 'محافظة وبتحبي العادات', adventure: 'بتحبي المغامرة والسفر' };
