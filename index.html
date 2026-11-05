@@ -316,6 +316,15 @@ body.touch .prompt { bottom: calc(112px + env(safe-area-inset-bottom, 0px)); }
 .chatbar button { border-radius: 999px; min-width: 44px; padding: 8px 12px; }
 .chatbar button:disabled { opacity: .5; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.rbar { display: inline-block; width: 70px; height: 6px; border-radius: 3px; background: rgba(255,255,255,.12); vertical-align: middle; overflow: hidden; }
+.rbar i { display: block; height: 100%; }
+.rrel { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; margin: 4px 0; }
+.rtabs { flex-wrap: wrap; }
+.hr-row.dim { opacity: .5; }
+.hr-row.warn { outline: 2px solid #c0392b; }
+.rdirty { display: grid; gap: 6px; margin-top: 6px; }
+table.ledger tr.me td { color: var(--taxi); font-weight: 700; }
+table.ledger tr.bad td { color: #ff9b8f; } table.ledger tr.good td { color: #8fe3a6; }
 .chip { font: inherit; font-size: 13px; padding: 5px 11px; border-radius: 999px; border: 1px solid rgba(244,184,28,.5); background: rgba(244,184,28,.12); color: inherit; cursor: pointer; }
 @keyframes tdot { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
 .ph-head b small.hh { display: block; font-size: 10px; font-weight: 400; letter-spacing: 1px; }
@@ -608,7 +617,7 @@ const RATES = {
 const NEED_WARN = { food: 'إنت جعان! كُل حاجة', drink: 'إنت عطشان! اشرب حاجة', energy: 'إنت تعبان، محتاج تنام' };
 
 // آخر اليوم (لسه بنفس رقم اليوم) وبداية اليوم الجديد
-function endOfDay() { staffNewDay(); mgrPay(); collectRent(); mkEndDay(); tradeEndDay(); loanNewDay(); conEndDay(); cnsEndDay(); lifeDay(); closeDay(); }
+function endOfDay() { staffNewDay(); mgrPay(); collectRent(); mkEndDay(); tradeEndDay(); loanNewDay(); conEndDay(); cnsEndDay(); lifeDay(); rivDay(); closeDay(); }
 function startOfDay() { applyInterest(); priceNewDay(); seasonNewDay(); fxNewDay(); book(); conStartDay(); }
 // الوقت اللي بيعدّي مرة واحدة (نوم، طبخ، جيم...) المحل بيكمّل فيه شغل: بنحسبه حساب بدل ما يقف
 let liveTick = false;
@@ -621,6 +630,7 @@ function advanceCore(mins, mode = 'awake') {
   mkAdvance(mins);
   cnsAdvance(mins);
   lifeTick(mins);
+  rivTick(mins);
   conHaulTick();
   rentTick();
   investTick();
@@ -1829,6 +1839,7 @@ function updateWorld(dt) {
   conAnimate(dt);
   cnsAnimate(dt);
   lifeAnimate(dt);
+  rivAnimate(dt);
   updateVehicles(dt);
   updateDelivery(dt);
   updateStaff(dt);
@@ -2295,7 +2306,7 @@ function applySettings() {
   resize();
   rpKick();
 }
-const GAME_VER = 84;   // رقم النسخة: بيظهر في الإعدادات وبيقولك لما اللعبة تتحدّث
+const GAME_VER = 85;   // رقم النسخة: بيظهر في الإعدادات وبيقولك لما اللعبة تتحدّث
 function openSettings() {
   if (panelOpen()) return;
   openPanel('الإعدادات', `ظبط اللعبة على جهازك · النسخة ${GAME_VER}`, body => {
@@ -3704,7 +3715,7 @@ let phoneApp = null, phoneSeller = null;
 const carriedQty = id => [...state.cargo.hands, ...state.cargo.box, ...state.truck.load].reduce((a, c) => a + (c.id === id ? c.pcs : 0), 0);
 function openPhone() {
   if (panelOpen()) return;
-  phoneApp = null; phoneSeller = null; adArm = null;
+  phoneApp = null; phoneSeller = null; adArm = null; rivChat = null; rivPick = null; RIV();
   openPanel('الموبايل', 'موبايلك', body => {
     const bar = `<div class="ph-status"><span>${clockText()}</span><span>📶 🔋</span></div>`;
     let screen;
@@ -3724,7 +3735,10 @@ function openPhone() {
         <button type="button" class="ph-app" data-act="app:cns"><span>🇨🇳</span>استيرادات الصين</button>
         <button type="button" class="ph-app" data-act="app:central"><span>🏭</span>المخزن المركزي</button>
         <button type="button" class="ph-app" data-act="app:ws"><span>🤝</span>عملاء الجملة${state.wholesale && wsOpen().length ? ` (${wsOpen().length})` : ''}</button>
+        <button type="button" class="ph-app" data-act="app:rivals"><span>🥊</span>المنافسين${state.riv && state.riv.unread ? ` (${state.riv.unread})` : ''}</button>
       </div>`;
+    } else if (phoneApp === 'rivals') {
+      screen = rivChat ? `<div class="ph-list ph-rep">${rivAppHTML()}</div>` : `<div class="ph-head"><button type="button" class="ph-back" data-act="home">› رجوع</button><b>🥊 المنافسين</b></div><div class="ph-list ph-rep">${rivAppHTML()}</div>`;
     } else if (phoneApp === 'news') {
       screen = `<div class="ph-head"><button type="button" class="ph-back" data-act="home">› رجوع</button><b>الأخبار والأسعار</b></div><div class="ph-list ph-rep">${seasonNewsHTML()}</div>`;
     } else if (phoneApp === 'reports') {
@@ -3787,10 +3801,12 @@ function openPhone() {
       ...(phoneApp === 'insta' ? instaHandlers(body) : {}),
       ...(phoneApp === 'msgs' ? msgActs() : {}),
       ...(phoneApp === 'family' ? famActs() : {}),
+      ...(phoneApp === 'rivals' ? rivActs() : {}),
       rep: i => { closePanel(); showReport(state.reports[+i]); },
       list: () => { phoneSeller = null; rerender(); },
     });
     if (phoneApp === 'msgs' && msgOpen && girl(msgOpen)) chatWire(body, girl(msgOpen), phoneCtx);
+    if (phoneApp === 'rivals' && rivChat && rivOf(rivChat)) rivWire(body, rivOf(rivChat));
   });
 }
 
@@ -4899,7 +4915,7 @@ function updateCustomers(dt) {
     custTimer -= dt;
     const sales = onShiftN('sales');
     if (custTimer <= 0) {
-      custTimer = rand(18, 34) / (1 + 0.5 * sales) / repMult() / drawMult() / season().demand / shiftDemand() / cityMult() / kidBoost('shop');
+      custTimer = rand(18, 34) / (1 + 0.5 * sales) / repMult() / drawMult() / season().demand / shiftDemand() / cityMult() / kidBoost('shop') / rivMult('shop');
       if (shopCrowd() < shopCap()) spawnCustomer();
     }
   }
@@ -5921,7 +5937,7 @@ function simulateShop(mins) {
   }
   // نفس معدل الزباين اللي في المحل وانت صاحي (بالثانية الحقيقية)، ومحدود بسعة المحل وسرعة الكاشير
   const sec = mins / settings.timeSpeed;   // الثواني الحقيقية اللي كانت هتعدّي
-  let rate = (1 + 0.5 * sales) * repMult() * drawMult() * season().demand * shiftDemand() * cityMult() * kidBoost('shop') / 26;
+  let rate = (1 + 0.5 * sales) * repMult() * drawMult() * season().demand * shiftDemand() * cityMult() * kidBoost('shop') * rivMult('shop') / 26;
   rate = Math.min(rate, shopCap() / 40, cash ? cash / checkoutSec() : 0);
   simAcc += rate * sec * 0.85;   // 0.85: الزباين الحقيقيين بياخدوا وقت يمشوا ويختاروا
   let n = Math.floor(simAcc); simAcc -= n;
@@ -6079,7 +6095,7 @@ function mkSetPrices() {
 }
 const mkRepMult = () => 0.5 + mk().rep / 5;
 // الزباين في الساعة (قبل حدود الكاشير)
-const mkRate = (sh = curShift()) => (sh === 'pm' ? 8 : 26) * cityMult() * mkUpMult().t * mkRepMult() * MK_POLICY[mk().policy].traffic * (season().id === 'summer' ? 1.1 : 1) * kidBoost('mk');
+const mkRate = (sh = curShift()) => (sh === 'pm' ? 8 : 26) * cityMult() * mkUpMult().t * mkRepMult() * MK_POLICY[mk().policy].traffic * (season().id === 'summer' ? 1.1 : 1) * kidBoost('mk') * rivMult('mk');
 function mkTargets(sh) {
   const lvl = { lean: 0.8, normal: 1, plenty: 1.4 }[mk().staffLvl];
   return { cashier: Math.max(1, Math.ceil(mkRate(sh) * lvl / mkCashRate() * 1.15)), stock: Math.max(1, Math.round((sh === 'pm' ? 1 : 2) * lvl)) };
@@ -8357,6 +8373,7 @@ function payWB(v, why) {   // من المحفظة، ولو مش مكفية من 
 }
 function buyLand(n, plan) {
   const C = CON(); if (C.lands[n]) return false;
+  { const ro = typeof rivLandOwner === 'function' && rivLandOwner(n); if (ro) { toast(`الأرض دي بقت ملك ${rivShort(ro)} · فاوضه عليها`, 'bad'); return false; } if (state.riv && state.riv.auction && state.riv.auction.n === n) { toast('الأرض دي في مزاد دلوقتي', 'bad'); return false; } }
   const o = landOffer(n);
   if (plan === 'cash') {
     if (!Economy.spend(o.cash, `أرض بلوك ${n} في العاصمة (كاش)`)) { toast('الفلوس اللي في المحفظة مش مكفية', 'bad'); return false; }
@@ -8654,6 +8671,10 @@ function landsHTML() {
       h += `<div class="hr-row"><div class="hr-top"><b>✅ بلوك ${n} · ملكك</b><span>${p ? `${BTYPES[p.type].icon} ${BTYPES[p.type].name}` : 'فاضية'}</span></div>
         <small class="when">${blkDesc(n)} · اشتريتها يوم ${L.day} بـ ${fmt(L.price)} (${fmt(L.ppm)}/م²) · ${L.left ? `فاضل ${L.left} أقساط × ${fmt(L.per)} · الجاي يوم ${L.next}` : 'متسددة بالكامل'}${L.lateDays ? ` · ⚠️ متأخر ${L.lateDays} يوم` : ''}</small>
         ${L.left ? `<div class="actions"><button class="btn" type="button" data-act="payI:${n}" ${state.money >= due ? '' : 'disabled'}>ادفع القسط · ${fmt(due)}</button><button class="btn" type="button" data-act="payA:${n}" ${state.money >= L.total - L.paid ? '' : 'disabled'}>سدد الباقي · ${fmt(L.total - L.paid)}</button></div>` : ''}</div>`;
+    } else if (rivLandOwner(n)) { const ro = rivLandOwner(n);
+      h += `<div class="hr-row"><div class="hr-top"><b>🏴 بلوك ${n} · ملك ${rivShort(ro)}</b><span>${fmt(landOffer(n).ppm)} / م²</span></div><small class="when">${blkDesc(n)} · ممكن تفاوضه يبيعهالك</small><div class="actions"><button class="btn" type="button" data-act="rvLand:${ro.id}|${n}">💬 فاوض ${rivShort(ro)}</button></div></div>`;
+    } else if (state.riv && state.riv.auction && state.riv.auction.n === n) { const A = state.riv.auction;
+      h += `<div class="hr-row"><div class="hr-top"><b>🔨 بلوك ${n} · في مزاد</b><span>${fmt(A.top)}</span></div><small class="when">بيقفل بعد ${fmtDur(Math.max(0, A.ends - absNow()))}</small><div class="actions"><button class="btn pri" type="button" data-act="rvAuc">زايد</button></div></div>`;
     } else { const o = landOffer(n);
       h += `<div class="hr-row"><div class="hr-top"><b>بلوك ${n} · ${blkDesc(n)}</b><span>${fmt(o.ppm)} / م²</span></div>
         <small class="when">التمن ${fmt(o.price)} · كاش ${fmt(o.cash)} · أو مقدم ${fmt(o.down)} + 8 × ${fmt(o.per)}</small>
@@ -8666,6 +8687,8 @@ function landsActs() {
   const arm = (k, fn) => { if (conArm !== k) { conArm = k; rerender(); return; } conArm = null; fn(); rerender(); };
   return {
     cash: n => arm('cash:' + n, () => buyLand(+n, 'cash')),
+    rvLand: v => { const [id, n] = v.split('|'); closePanel(); rivPanel(id, `بلوك ${n} تبيعهالي بكام؟`); },
+    rvAuc: () => { closePanel(); openPhone(); phoneApp = 'rivals'; rivTab = 'auction'; rerender(); },
     inst: n => arm('inst:' + n, () => buyLand(+n, 'inst')),
     payI: n => { const L = CON().lands[n], due = Math.min(L.per, L.total - L.paid); if (Economy.spend(due, `قسط أرض بلوك ${n} (بدري)`)) { L.paid += due; L.left--; L.lateDays = 0; L.next = state.day + LAND_INST.every; if (L.left <= 0 || L.paid >= L.total) { L.left = 0; toast(`🎉 خلّصت أقساط أرض بلوك ${n}`, 'good'); } else toast('اتدفع القسط', 'good'); updateHUD(); save(); rerender(); } },
     payA: n => { const L = CON().lands[n], rem = L.total - L.paid; if (Economy.spend(rem, `سداد باقي أرض بلوك ${n}`)) { L.paid = L.total; L.left = 0; L.lateDays = 0; toast(`🎉 أرض بلوك ${n} متسددة بالكامل`, 'good'); updateHUD(); save(); rerender(); } },
@@ -9151,10 +9174,11 @@ function conCollide(nx, nz) {
 function refreshBlockSigns() {
   for (const b of CAP_BLOCKS) {
     if (!b.signMesh) continue;
-    const L = state.con && state.con.lands[b.n], p = L && state.con.projects[b.n];
-    const key = L ? 'own' + (p ? p.type + (p.done ? 'd' : '') + (p.mk && p.mk.soldAll ? 's' : '') : '') : 'p' + landPpm(b.n);
+    const L = state.con && state.con.lands[b.n], p = L && state.con.projects[b.n], ro = !L && typeof rivLandOwner === 'function' && rivLandOwner(b.n);
+    const key = L ? 'own' + (p ? p.type + (p.done ? 'd' : '') + (p.mk && p.mk.soldAll ? 's' : '') : '') : ro ? 'r' + ro.id : 'p' + landPpm(b.n);
     if (b.signKey === key) continue; b.signKey = key;
     const mt = b.signMesh.material; mt.map.dispose();
+    if (ro) { mt.map = canvasTex(312, 156, label('#5b2c2c', '#ffffff', [[`بلوك ${b.n}`, 70, .4], [`ملك ${rivShort(ro)}`, 30, .8, '#f4b81c']])); mt.needsUpdate = true; continue; }
     mt.map = canvasTex(312, 156, L ? label('#1e7a3c', '#ffffff', [[`بلوك ${b.n}`, 70, .4], [p ? `${BTYPES[p.type].name}${p.mk && p.mk.soldAll ? ' · اتباع' : p.done ? '' : ' · تحت الإنشاء'}` : 'ملكك ✅', 30, .8, '#f4b81c']]) : label('#2c3a47', '#ffffff', [[`بلوك ${b.n}`, 70, .4], [`للبيع · ${landPpm(b.n).toLocaleString('en-US')} ج/م²`, 28, .8, '#f4b81c']]));
     mt.needsUpdate = true;
   }
@@ -9344,9 +9368,9 @@ function cnsNew() {
 const cnsToday = () => { const S = state.cns; if (!S.today || S.today.day !== state.day) S.today = { day: state.day, cust: 0, rev: 0, cogs: 0, lost: 0, oos: 0, walk: 0, items: {}, exp: 0 }; return S.today; };
 const cnsLog = (x, erp) => { const S = state.cns, L = erp ? S.erpLog : S.log; L.unshift({ t: `ي${state.day} · ${clockText()}`, x }); if (L.length > 15) L.length = 15; };
 const cnsOn = (r, sh) => state.cns ? state.cns.staff.filter(e => e.role === r && e.shift === sh).length : 0;
-const cnsRate = h => 30 * cnsHourMult(h) * cityMult() * cnsUp().t * (0.5 + state.cns.rep / 5) * kidBoost('cns');   // زباين في الساعة
+const cnsRate = h => 30 * cnsHourMult(h) * cityMult() * cnsUp().t * (0.5 + state.cns.rep / 5) * kidBoost('cns') * rivMult('cns');   // زباين في الساعة
 function cnsTargets(sh) {
-  const S = state.cns, k = CNS_LVL[S.lvl].k, peak = 30 * CNS_SH[sh].peak * cityMult() * cnsUp().t * (0.5 + S.rep / 5), ex = r => (S.extra[r + sh] || 0);
+  const S = state.cns, k = CNS_LVL[S.lvl].k, peak = 30 * CNS_SH[sh].peak * cityMult() * cnsUp().t * (0.5 + S.rep / 5) * rivMult('cns'), ex = r => (S.extra[r + sh] || 0);
   return { cashier: Math.max(1, Math.ceil(peak * k / (CNS_CASH * cnsUp().cash) * 1.1)) + ex('cashier'), sales: Math.max(1, Math.ceil(peak * k / CNS_SALES * 0.6)) + ex('sales'), stock: Math.max(1, Math.round(peak / 40 * k)) + ex('stock'), security: 1 + ex('security') };
 }
 const cnsWages = () => state.cns.staff.reduce((a, e) => a + CNS_ROLES[e.role].wage, 0) + CNS_HRW + (state.cns.mgrOn ? CNS_MGR : 0) + (state.cns.erp ? CNS_ERP.day : 0);
@@ -11284,6 +11308,637 @@ function lifeDay() {
 }
 
 // ---------- زيارة أهلها والتفاوض ----------
+// ================= المنافسين: رجال أعمال أذكياء في المدينة =================
+// عدو لدود كبير + منافسين بشخصيات مختلفة + تجار صغيرين بيظهروا ويختفوا. كل واحد ليه فلوس وأنشطة وعلاقة بيك،
+// وبيقرر كل يوم لوحده (يكسّر أسعار، يتوسّع، يشتري أراضي، يخطف موظفين، يلعب وسخ، يفاوض)، وبيتعلّم أنهي حركة نفعت.
+const RIV_SEC = {
+  shop: { name: 'الأدوات المكتبية', icon: '📚', base: 35000, fixed: 2400, cost: 300000, mine: () => isOwned(BIGSHOP()) },
+  mk: { name: 'السوبر ماركت', icon: '🛒', base: 110000, fixed: 7700, cost: 1200000, mine: () => mkOwned() },
+  cns: { name: 'استيراد الصين', icon: '🇨🇳', base: 260000, fixed: 18000, cost: 3500000, mine: () => !!state.cns },
+};
+const RIV_DEFS = [
+  { id: 'mansour', name: 'الحاج منصور الشرقاوي', short: 'الحاج منصور', kind: 'nemesis', icon: '👑', title: 'صاحب سلسلة سوبر ماركت الشرقاوي وأراضي في العاصمة', tr: { agg: .8, dirty: .75, smart: .9, greed: .85, pride: .9, honor: .3 }, k: 2.2, biz: { mk: .7, shop: .35, cns: .2 }, lands: 2, spot: { x: 134.5, z: 2.8 }, look: { shirt: '#2c3a47', skin: '#c68642', hair: '#888', pants: '#1b1f24', jacket: true, jacketC: '#1b1f24', style: 'mustache' }, voice: 'old' },
+  { id: 'sherif', name: 'شريف عزمي', short: 'شريف', kind: 'rival', icon: '🦊', title: 'مستورد شاب طموح، عنده محلات صيني وأدوات', tr: { agg: .7, dirty: .45, smart: .8, greed: .75, pride: .65, honor: .5 }, k: 0.9, biz: { cns: .55, shop: .25 }, lands: 0, spot: { x: 28.4, z: 2.8 }, look: { shirt: '#ecf0f1', skin: '#e0ac69', hair: '#2b1b10', pants: '#1f3a5f', style: 'short' }, voice: 'young' },
+  { id: 'nagla', name: 'مدام نجلاء البدري', short: 'مدام نجلاء', kind: 'rival', icon: '💎', title: 'مستثمرة عقارات ومولات، هادية ولعبها نضيف غالبًا', tr: { agg: .5, dirty: .2, smart: .95, greed: .6, pride: .5, honor: .8 }, k: 1.3, biz: { mk: .2 }, lands: 3, spot: { x: -586, z: 3.6 }, look: { fem: true, scarf: true, scarfC: '#1b1b1f', shirt: '#2c3a47', skin: '#e0ac69', pants: '#1b1f24', dress: true }, voice: 'lady' },
+  { id: 'ragab', name: 'المعلم رجب أبو الدهب', short: 'المعلم رجب', kind: 'rival', icon: '🐍', title: 'تاجر جملة وسوق، شاطر ولعبه وسخ', tr: { agg: .65, dirty: .95, smart: .55, greed: .75, pride: .75, honor: .2 }, k: 0.6, biz: { mk: .4, shop: .3 }, lands: 0, spot: { x: 76.5, z: 2.8 }, look: { shirt: '#5a4632', skin: '#8d5524', hair: '#111', pants: '#3b3b3b', style: 'beard' }, voice: 'street' },
+];
+const RIV_SMALL = [['مكتبة الأمل', 'shop'], ['أدوات أبو حمزة', 'shop'], ['سوبر ماركت البركة', 'mk'], ['ماركت الرحمة', 'mk'], ['توكيلات الصين الجديدة', 'cns'], ['بازار الشرق', 'cns'], ['مكتبة النجاح', 'shop'], ['هايبر الفردوس', 'mk']];
+const RIV_TYCOONS = [['عيلة الصاوي', 4.0e8], ['مجموعة النيل القابضة', 2.6e8], ['حسين باشا الدمرداش', 1.4e8], ['شركة الريادة للتطوير', 9.0e7], ['أولاد عبد الجواد', 5.5e7], ['الدكتور ممدوح عزت', 3.0e7]];
+const RIV_SEC_DAYS = [0, 1500, 4000, 9000], RIV_INS_DAY = 2500;
+function RIV() {
+  if (state.riv && state.riv.v === 1) return state.riv;
+  const pw = Math.max(250000, typeof netWorth === 'function' ? netWorth() : state.money);
+  const free = []; for (let n = 1; n <= 24; n++) if (!(state.con && state.con.lands[n])) free.push(n);
+  const list = RIV_DEFS.map(d => {
+    const r = { id: d.id, alive: true, cash: Math.round(pw * d.k * 1.5 + 1.5e6 * d.k), biz: {}, lands: [], rel: { hate: d.kind === 'nemesis' ? 25 : 5, respect: 20, trust: 20, fear: 5 }, w: { expand: .5, price: .5, land: .5, poach: .5, dirty: .5, talk: .5, deal: .5 }, log: [], last: null, truce: 0, broke: 0, loss: {}, neg: null, mem: [] };
+    for (const [s, p] of Object.entries(d.biz)) r.biz[s] = { p, price: 1, closed: 0, deb: 0, debDay: 0 };
+    for (let i = 0; i < d.lands && free.length; i++) r.lands.push(free.splice(Math.floor(Math.random() * free.length), 1)[0]);
+    return r;
+  });
+  state.riv = { v: 1, list, small: [], log: [], msgs: {}, unread: 0, sec: 0, ins: false, ev: [], auction: null, jv: [], br: [], poach: null, buffs: {}, lastAuc: state.day, rank: null };
+  return state.riv;
+}
+const rivDef = id => RIV_DEFS.find(d => d.id === id);
+const rivOf = id => RIV().list.find(r => r.id === id);
+const rivName = r => rivDef(r.id).name, rivShort = r => rivDef(r.id).short;
+const rivAlive = () => RIV().list.filter(r => r.alive);
+const rivTr = r => rivDef(r.id).tr;
+// مؤشر أسعارك في كل نشاط (1 = السعر العادي)
+function rivMyPrice(s) {
+  try {
+    if (s === 'shop') { const ids = Object.keys(DEFAULT_PRICES).filter(id => state.prices && state.prices[id] != null && id !== 'print'); return ids.length ? ids.reduce((a, id) => a + state.prices[id] / DEFAULT_PRICES[id], 0) / ids.length : 1; }
+    if (s === 'mk') return mkOwned() ? MK_POLICY[mk().policy].mk / 1.22 : 1;
+    if (s === 'cns') { const S = state.cns; if (!S) return 1; const ids = cnsIds(); return ids.length ? ids.reduce((a, id) => a + (S.prices[id] || cnsRef(id)) / cnsRef(id), 0) / ids.length : 1; }
+  } catch (e) {}
+  return 1;
+}
+// المنافسة بتاخد من زباينك قد إيه (بيتضرب في معدل الزباين)
+function rivMult(s) {
+  const R = state.riv; if (!R) return 1;
+  const me = rivMyPrice(s); let comp = 0;
+  for (const r of R.list) { const b = r.alive && r.biz[s]; if (!b || !b.p || b.closed > state.day) continue; comp += b.p * Math.pow(me / b.price, 1.6) * (b.debDay > state.day ? 1 - b.deb : 1) * (r.truce > state.day ? 0.6 : 1); }
+  for (const t of R.small) if (t.s === s) comp += t.p * Math.pow(me / t.price, 1.4);
+  let m = 1 - 0.4 * Math.tanh(comp * 0.6);
+  const bf = R.buffs[s]; if (bf && bf.until > state.day) m *= 1 + bf.v;
+  return clamp(m, 0.55, 1.12);
+}
+const rivMyRev = s => { try { if (s === 'shop') { const d = state.shopStats && state.shopStats.days[state.day - 1]; return d ? d.rev : 0; } if (s === 'mk') { const t = mk().days && mk().days[0]; return t ? t.rev || 0 : 0; } if (s === 'cns') { const t = state.cns && state.cns.days && state.cns.days[0]; return t ? t.rev || 0 : 0; } } catch (e) {} return 0; };
+function rivWorth(r) { let w = r.cash; for (const [s, b] of Object.entries(r.biz)) w += (RIV_SEC[s].cost * b.p) * 0.9; for (const n of r.lands) w += landOffer(n).price; return Math.round(w); }
+function rivLandOwner(n) { const R = state.riv; if (!R) return null; return R.list.find(r => r.alive && r.lands.includes(n)) || null; }
+// ---- الأخبار والرسايل ----
+function rivNews(txt, kind = '') { const R = RIV(); R.log.unshift({ d: state.day, t: clockText(), txt, kind }); if (R.log.length > 40) R.log.length = 40; }
+function rivSay(r, txt, toastIt = true) {
+  const R = RIV(), T = R.msgs[r.id] || (R.msgs[r.id] = []);
+  T.push({ from: 'her', text: txt, t: `ي${state.day} ${clockText()}` }); if (T.length > 40) T.splice(0, T.length - 40);
+  R.unread++; if (toastIt) toast(`${rivDef(r.id).icon} ${rivShort(r)}: ${txt.slice(0, 70)}`, '', 5000);
+}
+const rivMem = (r, txt) => { r.mem.push({ d: state.day, txt }); if (r.mem.length > 20) r.mem.shift(); };
+// ---- اقتصادهم كل يوم ----
+function rivEconomy(r) {
+  let prof = 0;
+  for (const [s, b] of Object.entries(r.biz)) {
+    if (!b.p) continue;
+    const S = RIV_SEC[s], mine = S.mine(), me = mine ? rivMyPrice(s) : 1;
+    let crowd = 0; for (const o of state.riv.list) if (o !== r && o.alive && o.biz[s]) crowd += o.biz[s].p; for (const tr of state.riv.small) if (tr.s === s) crowd += tr.p;
+    const share = (mine ? 0.55 : 0.9) * Math.pow(b.price / me, -1.2) / (1 + 0.35 * crowd);
+    const open = b.closed > state.day ? 0 : 1, deb = b.debDay > state.day ? 1 - b.deb : 1;
+    const rev = S.base * b.p * share * open * deb * (0.85 + Math.random() * 0.3);
+    const p = rev * (b.price * 1.25 - 1) - S.fixed * b.p;
+    b.prof = Math.round(p); prof += p;
+    r.loss[s] = p < 0 ? (r.loss[s] || 0) + 1 : 0;
+  }
+  prof += rivWorth(r) * 0.0015;   // باقي استثماراته
+  if (rivDef(r.id).kind === 'nemesis' && typeof netWorth === 'function' && netWorth() > rivWorth(r) * 0.8) prof += rivWorth(r) * 0.003;   // العدو اللدود بيكبر معاك
+  r.cash += Math.round(prof); r.lastProf = Math.round(prof);
+  if (r.cash < -rivWorth(r) * 0.15) r.broke++; else r.broke = Math.max(0, r.broke - 1);
+}
+// ---- القرار: كل حركة ليها قيمة متوقعة حسب السوق وشخصيته واللي اتعلمه ----
+function rivDecide(r) {
+  const t = rivTr(r), R = RIV(), opts = [], hate = r.rel.hate / 100, fear = r.rel.fear / 100, truce = r.truce > state.day, cap = rivDef(r.id).kind === 'nemesis' ? 1.4 : 1;
+  r.cool = r.cool || {};
+  const add = (k, u, a) => opts.push({ k, u: u + (Math.random() - 0.5) * (1.1 - t.smart) * 0.6, a });
+  for (const [s, S] of Object.entries(RIV_SEC)) {
+    const b = r.biz[s], mine = S.mine(), myRev = rivMyRev(s);
+    if ((!b || (b.p < cap && (b.prof || 0) >= 0 && !(r.loss[s] > 0))) && !(r.cool[s] > state.day) && r.cash > S.cost * (1 + (b ? b.p : 0)) * 0.6) add('expand', t.greed * 0.5 + (mine ? 0.25 + Math.min(0.3, myRev / (S.base * 3)) : 0) + r.w.expand * 0.4 - 0.2, { s });
+    if (b && b.p && mine && !truce) { const me = rivMyPrice(s); if (me < b.price - 0.03 || hate > 0.5) add('cut', t.agg * 0.55 + hate * 0.3 + r.w.price * 0.4 - (r.cash < 0 ? 0.6 : 0) - (b.price < 0.86 ? 0.5 : 0), { s }); }
+    if (b && b.p && b.price < 1 && (r.cash < 0 || truce || (b.prof || 0) < 0)) add('raise', t.smart * 0.6 + (r.cash < 0 ? 0.3 : 0), { s });
+    if (b && b.p && (r.loss[s] || 0) >= 3) add('retreat', t.smart * 0.7, { s });
+  }
+  // أراضي العاصمة
+  const freeL = []; for (let n = 1; n <= 24; n++) if (!(state.con && state.con.lands[n]) && !rivLandOwner(n) && !(R.auction && R.auction.n === n)) freeL.push(n);
+  if (freeL.length) {
+    const myL = state.con ? Object.keys(state.con.lands).map(Number) : [];
+    const near = freeL.find(n => myL.some(m => Math.abs(m - n) === 1 || Math.abs(m - n) === 6)), n = near || pick(freeL), price = landOffer(n).price;
+    if (r.cash > price * 1.2) add('land', 0.25 + t.greed * 0.35 + (near ? 0.25 : 0) + r.w.land * 0.35 - (myL.length ? 0 : 0.15), { n });
+  }
+  // يخطف موظفينك
+  if (!truce && !R.poach && state.staff && state.staff.length && t.agg > 0.5) add('poach', t.agg * 0.35 + hate * 0.2 + r.w.poach * 0.3 - 0.1, {});
+  // لعب وسخ
+  const evAgainst = R.ev.filter(e => e.rid === r.id && !e.used).length;
+  if (!truce && t.dirty > 0.3 && (hate > 0.3 || rivLeader(r) === 'me') && !(r.cool.dirty > state.day) && R.lastDirty !== state.day) {
+    const base = t.dirty * 0.5 + hate * 0.35 + r.w.dirty * 0.3 - fear * 0.4 - evAgainst * 0.15 - R.sec * 0.06;
+    add('rumor', base, {});
+    add('complaint', base - 0.05, {});
+    if (trade().ships.some(s => s.dir === 'toWild')) add('customs', base - 0.05, {});
+    if (Object.values(state.warehouse || {}).some(v => v > 0) || (mkOwned() && Object.values(mk().wh).some(l => lotsQty(l) > 0))) add('theft', base - 0.12, {});
+    if (t.dirty > 0.7 && hate > 0.75) add('fire', base - 0.35, {});
+  }
+  // كلام وعروض
+  add('talk', 0.12 + t.pride * 0.15 + r.w.talk * 0.2, {});
+  if (!truce && (r.cash < 0 || (t.honor > 0.6 && hate < 0.35) || r.rel.respect > 65)) add('offer_truce', 0.2 + t.honor * 0.3 + (r.cash < 0 ? 0.35 : 0) + r.w.deal * 0.2, {});
+  if (r.cash < 0 && Object.values(r.biz).some(b => b.p > 0)) add('offer_sell', 0.3 + r.broke * 0.15, {});
+  add('wait', 0.3, {});
+  opts.sort((a, b) => b.u - a.u);
+  return opts[0];
+}
+function rivLeader(r) { const me = typeof netWorth === 'function' ? netWorth() : 0; return me > rivWorth(r) ? 'me' : 'him'; }
+// ---- تنفيذ الحركة ----
+function rivAct(r, o) {
+  const t = rivTr(r), R = RIV(), nm = rivShort(r), d = rivDef(r.id);
+  r.last = { k: o.k, day: state.day, myRev: { shop: rivMyRev('shop'), mk: rivMyRev('mk'), cns: rivMyRev('cns') }, cash: r.cash };
+  const secTxt = s => `${RIV_SEC[s].icon} ${RIV_SEC[s].name}`;
+  switch (o.k) {
+    case 'expand': { const s = o.a.s, S = RIV_SEC[s], b = r.biz[s] || (r.biz[s] = { p: 0, price: 1, closed: 0, deb: 0, debDay: 0 }), c = Math.round(S.cost * (0.6 + b.p * 0.5)); r.cash -= c; (r.cool = r.cool || {})[s] = state.day + 5; b.p = Math.round((b.p + 0.25) * 100) / 100; rivNews(`${d.icon} ${nm} فتح فرع جديد في ${secTxt(s)} (استثمار ${fmt(c)})`, S.mine() ? 'bad' : ''); if (S.mine() && Math.random() < 0.5) rivSay(r, pick(RIV_LINES.expand[d.voice])); break; }
+    case 'cut': { const s = o.a.s, b = r.biz[s], me = rivMyPrice(s), np = Math.max(0.82, Math.min(b.price - 0.05, me - 0.03)); b.price = Math.round(np * 100) / 100; rivNews(`${d.icon} ${nm} كسّر الأسعار في ${secTxt(s)} لـ ${Math.round(b.price * 100)}% من السعر العادي`, 'bad'); if (Math.random() < 0.6) rivSay(r, pick(RIV_LINES.cut[d.voice])); break; }
+    case 'raise': { const b = r.biz[o.a.s]; b.price = Math.round(Math.min(1.08, b.price + 0.06) * 100) / 100; rivNews(`${d.icon} ${nm} رفع أسعاره في ${secTxt(o.a.s)}`); break; }
+    case 'retreat': { const b = r.biz[o.a.s]; (r.cool = r.cool || {})[o.a.s] = state.day + 8; b.p = Math.max(0, Math.round((b.p - 0.25) * 100) / 100); r.cash += Math.round(RIV_SEC[o.a.s].cost * 0.25 * 0.6); rivNews(`${d.icon} ${nm} قفل فرع في ${secTxt(o.a.s)} عشان كان خسران`, 'good'); break; }
+    case 'land': rivLandBuy(r, o.a.n); break;
+    case 'poach': rivPoach(r); break;
+    case 'talk': rivSay(r, pick(r.rel.hate > 60 ? RIV_LINES.threat[d.voice] : r.rel.respect > 60 ? RIV_LINES.respect[d.voice] : RIV_LINES.taunt[d.voice])); break;
+    case 'offer_truce': r.neg = { type: 'truce', at: state.day }; rivSay(r, pick(RIV_LINES.truceOffer[d.voice])); break;
+    case 'offer_sell': { const s = Object.entries(r.biz).filter(([, b]) => b.p > 0).sort((a, b) => b[1].p - a[1].p)[0][0], ask = rivBizPrice(r, s, true); r.neg = { type: 'sellbiz', s, ask, at: state.day }; rivSay(r, `${pick(['بص يا سيدي', 'هكلمك بصراحة', 'عندي عرض ليك'])}: أنا ممكن أبيعلك نشاطي في ${RIV_SEC[s].name} بـ ${fmt(ask)}. موافق؟`); break; }
+    case 'rumor': case 'complaint': case 'customs': case 'theft': case 'fire': rivDirty(r, o.k); break;
+  }
+}
+// ---- لعب وسخ ضدك (الحماية بتقلل نجاحه وبتزوّد إنك تمسك دليل) ----
+function rivDirty(r, k) {
+  const R = RIV(), t = rivTr(r), d = rivDef(r.id), nm = rivShort(r);
+  R.lastDirty = state.day; (r.cool = r.cool || {}).dirty = state.day + 3 + Math.round((1 - t.dirty) * 5);
+  const success = Math.random() < (0.85 - R.sec * 0.18) * (k === 'fire' ? 0.6 : 1);
+  const caught = Math.random() < 0.12 + R.sec * 0.14 + (1 - t.smart) * 0.25;
+  const ev = () => { if (caught) { R.ev.push({ rid: r.id, k, d: state.day, used: false }); rivNews(`🕵️ الأمن بتاعك مسك دليل إن ${nm} ورا ${RIV_DIRTY_TXT[k]}`, 'good'); } };
+  if (!success) { rivNews(`🛡️ حد حاول ${RIV_DIRTY_TXT[k]} ضدك والأمن منعه`, 'good'); ev(); return; }
+  switch (k) {
+    case 'rumor': {
+      const hit = 0.15 + t.dirty * 0.25;
+      if (state.rep) { rep().score = clamp(rep().score - hit, 0, 5); rep().reviews.unshift({ d: state.day, t: Math.floor(state.minutes), n: pick(['واحد ساكن جنبكم', 'زبونة', 'حد على الفيسبوك']), r: 1, txt: pick(['سمعت إن البضاعة عندهم مضروبة', 'بيقولوا المحل ده بيغش في الأسعار', 'ماتشتروش من هنا، فيه بضاعة منتهية']) }); }
+      if (mkOwned()) mk().rep = clamp(mk().rep - hit * 0.8, 0, 5);
+      if (state.cns) state.cns.rep = clamp(state.cns.rep - hit * 0.8, 0, 5);
+      rivNews(`🗣️ إشاعات منتشرة في المدينة إن محلاتك بتغش · السمعة نزلت`, 'bad'); toast('🗣️ فيه إشاعات وحشة عن محلاتك · السمعة نزلت', 'bad', 5000); break;
+    }
+    case 'complaint': {
+      const fine = Math.round((8000 + Math.random() * 40000) * (1 + Math.min(3, (typeof netWorth === 'function' ? netWorth() : 0) / 5e6)));
+      if (!payWB(fine, 'غرامة تفتيش تموين (بعد شكوى)')) { state.money -= fine; Economy._log(-fine, 'غرامة تفتيش تموين (بعد شكوى)'); }
+      rivNews(`👮 تفتيش تموين جالك بعد شكوى وكتب غرامة ${fmt(fine)}`, 'bad'); toast(`👮 تفتيش تموين بعد شكوى · غرامة ${fmt(fine)}`, 'bad', 6000); break;
+    }
+    case 'customs': {
+      const sh = trade().ships.filter(s => s.dir === 'toWild'); const s = pick(sh); const days = 2 + Math.floor(Math.random() * 3); s.at += days * 1440;
+      rivNews(`🚢 شحنتك من الصين اتعطلت في الجمارك ${days} أيام (حد دفع رشوة)`, 'bad'); toast(`🚢 شحنتك اتعطلت في الجمارك ${days} أيام`, 'bad', 5000); break;
+    }
+    case 'theft': case 'fire': {
+      const frac = k === 'fire' ? 0.5 : 0.18 + Math.random() * 0.17; let val = 0;
+      for (const id of Object.keys(state.warehouse || {})) { const q = state.warehouse[id] || 0; if (q <= 0) continue; const lost = Math.floor(q * frac); state.warehouse[id] = q - lost; val += lost * (typeof costPer === 'function' ? costPer(id) : 1); }
+      if (mkOwned()) for (const [id, lots] of Object.entries(mk().wh)) for (const l of lots) { const lost = Math.floor(l.q * frac); l.q -= lost; val += lost * (MK_ITEMS[id] ? MK_ITEMS[id].cost : 1); }
+      val = Math.round(val);
+      if (k === 'fire') { const rep2 = Math.round(20000 + val * 0.2); if (!payWB(rep2, 'تصليح المخزن بعد الحريقة')) { state.money -= rep2; Economy._log(-rep2, 'تصليح المخزن بعد الحريقة'); } val += rep2; }
+      const ins = R.ins ? Math.round(val * 0.8) : 0; if (ins) Economy.add(ins, 'تعويض التأمين');
+      rivNews(k === 'fire' ? `🔥 حريقة في مخزنك! خسارة ${fmt(val)}${ins ? ` · التأمين عوّض ${fmt(ins)}` : ''}` : `🦹 سرقة من مخزنك! اتسرق بضاعة بـ ${fmt(val)}${ins ? ` · التأمين عوّض ${fmt(ins)}` : ''}`, 'bad');
+      toast(k === 'fire' ? `🔥 حريقة في المخزن · خسارة ${fmt(val)}` : `🦹 اتسرق من المخزن بضاعة بـ ${fmt(val)}`, 'bad', 6000);
+      if (typeof whRefresh === 'function') try { whRefresh(); } catch (e) {}
+      break;
+    }
+  }
+  rivMem(r, `عمل ${RIV_DIRTY_TXT[k]}`); ev();
+  if (Math.random() < 0.35) setTimeout(() => rivSay(r, pick(RIV_LINES.smug[rivDef(r.id).voice])), 2500);
+}
+const RIV_DIRTY_TXT = { rumor: 'الإشاعات عن محلاتك', complaint: 'شكوى التموين', customs: 'تعطيل شحنتك في الجمارك', theft: 'سرقة مخزنك', fire: 'حريقة المخزن' };
+// يخطف موظف: عرض مرتب أعلى، وانت تقرر تزوّده ولا يمشي
+function rivPoach(r) {
+  const R = RIV(); if (!state.staff || !state.staff.length) return;
+  const e = pick(state.staff), bonus = Math.max(2000, Math.round((ROLES[e.role] ? ROLES[e.role].wage || 50 : 50) * 40 / 50) * 50);
+  R.poach = { rid: r.id, eid: e.id, name: e.name, bonus, until: absNow() + 1440 };
+  rivNews(`💼 ${rivShort(r)} عرض على ${e.name} يشتغل عنده بمرتب أعلى`, 'bad');
+  toast(`💼 ${e.name} جاله عرض من ${rivShort(r)} · افتح «المنافسين» في الموبايل وقرر`, 'bad', 6000);
+}
+function rivPoachResolve(keep) {
+  const R = RIV(), P = R.poach; if (!P) return;
+  if (keep) { if (!Economy.spend(P.bonus, `مكافأة لـ${P.name} عشان مايسيبش المحل`)) { toast('الفلوس مش مكفية', 'bad'); return; } toast(`👍 ${P.name} قعد معاك`, 'good'); }
+  else { state.staff = state.staff.filter(e => e.id !== P.eid); if (typeof syncStaff === 'function') syncStaff(); const r = rivOf(P.rid); for (const b of Object.values(r.biz)) if (b.p) b.p = Math.round((b.p + 0.05) * 100) / 100; rivNews(`💼 ${P.name} ساب المحل وراح لـ${rivShort(r)}`, 'bad'); }
+  R.poach = null; save();
+}
+// ---- أراضي العاصمة ----
+function rivLandBuy(r, n) {
+  const o = landOffer(n); if (r.cash < o.price || rivLandOwner(n) || (state.con && state.con.lands[n])) return;
+  r.cash -= o.cash; r.lands.push(n); if (typeof refreshBlockSigns === 'function') try { refreshBlockSigns(); } catch (e) {}
+  rivNews(`🏜️ ${rivShort(r)} اشترى بلوك ${n} في العاصمة بـ ${fmt(o.cash)}`, state.con && Object.keys(state.con.lands).length ? 'bad' : '');
+}
+// مزاد على أرض: هما بيزايدوا بذكاء لحد قيمة هما شايفينها
+function rivAuctionStart() {
+  const R = RIV(); if (R.auction) return;
+  const free = []; for (let n = 1; n <= 24; n++) if (!(state.con && state.con.lands[n]) && !rivLandOwner(n)) free.push(n);
+  if (!free.length) return;
+  const n = pick(free.sort((a, b) => landOffer(b).price - landOffer(a).price).slice(0, 8)), base = Math.round(landOffer(n).price * 0.85 / 1000) * 1000;
+  R.auction = { n, start: base, top: base, who: null, ends: (state.day + 2) * 1440 + 18 * 60, bids: [] };
+  rivNews(`🔨 مزاد على أرض بلوك ${n} في العاصمة · بيبدأ من ${fmt(base)} · بيقفل بعد بكرة 6 المغرب`, 'good');
+  toast(`🔨 مزاد على بلوك ${n} في العاصمة · افتح «المنافسين» ← المزادات`, 'good', 6000);
+}
+const rivAucVal = (r, n) => Math.round(landOffer(n).price * (0.95 + rivTr(r).greed * 0.35 + (r.rel.hate > 50 ? 0.1 : 0)) / 1000) * 1000;
+function rivAuctionAI() {
+  const A = state.riv && state.riv.auction; if (!A) return;
+  const cands = rivAlive().filter(r => A.who !== r.id && r.cash > A.top * 1.1 && rivAucVal(r, A.n) > A.top * 1.03);
+  if (!cands.length) return;
+  const r = cands.sort((a, b) => rivAucVal(b, A.n) - rivAucVal(a, A.n))[0];
+  const bid = Math.min(rivAucVal(r, A.n), Math.round(A.top * (1.02 + Math.random() * 0.04) / 1000) * 1000);
+  if (bid <= A.top) return;
+  A.top = bid; A.who = r.id; A.bids.unshift({ who: r.id, v: bid, t: clockText() });
+  if (A.bids.length > 12) A.bids.length = 12;
+}
+function rivAuctionBid(v) {
+  const A = RIV().auction; if (!A) return false;
+  if (v <= A.top) { toast('لازم تزايد بأكتر من آخر سعر', 'bad'); return false; }
+  if (state.money + (state.bank && state.bank.open ? state.bank.balance : 0) < v) { toast('فلوسك مش مكفية للمزايدة دي', 'bad'); return false; }
+  A.top = v; A.who = 'me'; A.bids.unshift({ who: 'me', v, t: clockText() }); if (A.bids.length > 12) A.bids.length = 12;
+  if (Math.random() < 0.85) rivAuctionAI();   // هما بيردوا على طول لو لسه في حدودهم
+  save(); return true;
+}
+function rivAuctionClose() {
+  const R = RIV(), A = R.auction; if (!A) return;
+  R.auction = null;
+  if (A.who === 'me') {
+    if (!payWB(A.top, `أرض بلوك ${A.n} من المزاد`)) { toast('معاكش تمن الأرض · المزاد اتلغى عليك وخسرت التأمين', 'bad'); const fee = Math.round(A.top * 0.02); state.money -= fee; Economy._log(-fee, 'غرامة مزاد'); return; }
+    const C = CON(), o = landOffer(A.n);
+    C.lands[A.n] = { day: state.day, ppm: Math.round(A.top / BLOCK_M2), price: A.top, plan: 'cash', total: A.top, paid: A.top, left: 0, per: 0, next: 0, late: 0, lateDays: 0, stock: {} };
+    try { conRefresh(A.n); refreshBlockSigns(); } catch (e) {}
+    rivNews(`🔨 كسبت مزاد بلوك ${A.n} بـ ${fmt(A.top)}`, 'good'); toast(`🔨 مبروك! كسبت مزاد بلوك ${A.n} بـ ${fmt(A.top)}`, 'good', 6000);
+    for (const r of rivAlive()) if (A.bids.some(b => b.who === r.id)) { r.rel.hate = clamp(r.rel.hate + 8, 0, 100); r.rel.respect = clamp(r.rel.respect + 6, 0, 100); }
+  } else if (A.who) { const r = rivOf(A.who); r.cash -= A.top; r.lands.push(A.n); try { refreshBlockSigns(); } catch (e) {} rivNews(`🔨 ${rivShort(r)} كسب مزاد بلوك ${A.n} بـ ${fmt(A.top)}`, 'bad'); if (Math.random() < 0.5) rivSay(r, pick(RIV_LINES.smug[rivDef(r.id).voice])); }
+  else rivNews(`🔨 مزاد بلوك ${A.n} قفل من غير ما حد يزايد`);
+}
+// ---- كل يوم ----
+function rivDay() {
+  const R = RIV();
+  // الحماية والتأمين
+  if (R.sec) { const c = RIV_SEC_DAYS[R.sec]; if (!payWB(c, 'أمن خاص للمحلات')) { R.sec = 0; toast('🛡️ الأمن الخاص اتلغى عشان الفلوس مش مكفية', 'bad'); } }
+  if (R.ins && !payWB(RIV_INS_DAY, 'قسط تأمين المخازن')) { R.ins = false; toast('📄 التأمين اتلغى عشان الفلوس مش مكفية', 'bad'); }
+  // فروع اشتريتها منهم
+  for (const b of R.br) { const p = Math.round(b.daily * (0.8 + Math.random() * 0.4)); Economy.add(p, `أرباح ${b.name}`); }
+  // شراكات
+  for (const j of R.jv.slice()) {
+    const r = rivOf(j.rid), cheat = rivTr(r).honor < 0.35 && Math.random() < 0.08;
+    const p = Math.round(j.cap * 0.004 * (0.4 + Math.random() * 1.2) * (cheat ? 0.2 : 1));
+    Economy.add(p, `نصيبك من الشراكة مع ${rivShort(r)}`); if (cheat) { rivNews(`🤨 أرباح الشراكة مع ${rivShort(r)} قليلة بشكل غريب النهارده`); r.rel.trust = clamp(r.rel.trust - 2, 0, 100); }
+    if (state.day >= j.end) { Economy.add(j.cap, `رجوع رأس مالك من الشراكة مع ${rivShort(r)}`); R.jv.splice(R.jv.indexOf(j), 1); rivNews(`🤝 الشراكة مع ${rivShort(r)} خلصت ورأس مالك رجع`, 'good'); r.rel.trust = clamp(r.rel.trust + 10, 0, 100); }
+  }
+  for (const [s, bf] of Object.entries(R.buffs)) if (bf.until <= state.day) delete R.buffs[s];
+  // المنافسين
+  const playerIn = Object.values(RIV_SEC).some(S => S.mine()) || (state.con && Object.keys(state.con.lands).length);
+  for (const r of rivAlive()) {
+    // التعلّم: الحركة اللي فاتت جابت نتيجة؟ (قلّت دخلك؟ كسّبته؟ اتمسك؟)
+    if (r.last && r.w[rivWkey(r.last.k)] != null) {
+      let rew = 0; const k = r.last.k;
+      for (const s of Object.keys(RIV_SEC)) { const was = r.last.myRev[s], now = rivMyRev(s); if (was > 0) rew += (was - now) / was; }
+      rew += clamp((r.cash - r.last.cash) / Math.max(1, rivWorth(r) * 0.01), -1, 1) * 0.3;
+      if (R.ev.some(e => e.rid === r.id && e.d === r.last.day)) rew -= 0.6;
+      const wk = rivWkey(k); r.w[wk] = clamp(r.w[wk] + 0.2 * (clamp(0.5 + rew, 0, 1) - r.w[wk]), 0.05, 0.95);
+    }
+    rivEconomy(r);
+    if (r.broke >= 3) { rivBankrupt(r); continue; }
+    if (!playerIn && Math.random() < 0.7) { r.last = null; continue; }   // لسه مش شايفينك
+    const n = rivDef(r.id).kind === 'nemesis' ? 2 : 1, act = 0.4 + rivTr(r).agg * 0.35;
+    for (let i = 0; i < n; i++) { if (Math.random() > act) continue; const o = rivDecide(r); if (o && o.k !== 'wait') rivAct(r, o); }
+    // المشاعر بتهدى شوية مع الوقت
+    r.rel.hate = clamp(r.rel.hate * 0.98 + (rivLeader(r) === 'me' ? 0.8 : 0), 0, 100); r.rel.fear = clamp(r.rel.fear * 0.97, 0, 100);
+    if (r.truce && r.truce === state.day) rivNews(`🕊️ الهدنة مع ${rivShort(r)} خلصت`);
+  }
+  // تجار صغيرين بيظهروا ويختفوا
+  for (const tr of R.small.slice()) { tr.days++; if (Math.random() < 0.06 + (rivMyPrice(tr.s) < tr.price ? 0.05 : 0)) { R.small.splice(R.small.indexOf(tr), 1); rivNews(`🏚️ ${tr.name} قفل`, 'good'); } }
+  for (const [s, S] of Object.entries(RIV_SEC)) if (S.mine() && R.small.filter(x => x.s === s).length < 2 && Math.random() < 0.08) { const used = new Set(R.small.map(x => x.name)), cand = RIV_SMALL.filter(([nm, ss]) => ss === s && !used.has(nm)); if (cand.length) { const [nm] = pick(cand); R.small.push({ name: nm, s, p: 0.08 + Math.random() * 0.12, price: 0.9 + Math.random() * 0.15, days: 0 }); rivNews(`🏪 ${nm} فتح جديد في ${RIV_SEC[s].name}`, 'bad'); } }
+  // مزادات
+  if (R.auction && absNow() >= R.auction.ends) rivAuctionClose();
+  if (!R.auction && state.con && state.day - R.lastAuc >= 9 && Math.random() < 0.3) { R.lastAuc = state.day; rivAuctionStart(); }
+  // ترتيب الأغنيا
+  const rk = rivRank(), my = rk.findIndex(x => x.me) + 1; if (R.rank && my < R.rank) { rivNews(`📈 طلعت المركز ${my} في قايمة أغنى 10 في المدينة`, 'good'); toast(`📈 بقيت رقم ${my} في أغنى 10 في المدينة`, 'good', 5000); } R.rank = my;
+}
+const rivWkey = k => ({ expand: 'expand', cut: 'price', raise: 'price', retreat: 'expand', land: 'land', poach: 'poach', rumor: 'dirty', complaint: 'dirty', customs: 'dirty', theft: 'dirty', fire: 'dirty', talk: 'talk', offer_truce: 'deal', offer_sell: 'deal' }[k]);
+// كل شوية في اليوم: المزاد بيتحرك، العروض بتخلص، رد فعل على أسعارك
+function rivTick(mins) {
+  const R = state.riv; if (!R) return;
+  if (R.auction) { if (Math.random() < mins / 240) rivAuctionAI(); if (absNow() >= R.auction.ends) rivAuctionClose(); }
+  if (R.poach && absNow() >= R.poach.until) { const P = R.poach; rivPoachResolve(false); toast(`💼 ${P.name} ساب المحل وراح للمنافس عشان ماردّتش`, 'bad', 5000); }
+  // خيانة الهدنة: لو كسّرت أسعارك وانتو في هدنة
+  for (const r of rivAlive()) if (r.truce > state.day) for (const s of Object.keys(RIV_SEC)) if (r.biz[s] && r.biz[s].p && RIV_SEC[s].mine() && rivMyPrice(s) < 0.9 && !r.betray) {
+    r.betray = state.day; r.truce = 0; r.rel.hate = clamp(r.rel.hate + 30, 0, 100); r.rel.trust = clamp(r.rel.trust - 40, 0, 100);
+    rivSay(r, pick(RIV_LINES.betrayed[rivDef(r.id).voice])); rivNews(`💢 ${rivShort(r)} اعتبرك خنت الهدنة عشان كسّرت الأسعار`, 'bad');
+  }
+}
+// إفلاس: بيبيع كل حاجة
+function rivBankrupt(r) {
+  r.alive = false; const R = RIV();
+  rivNews(`💥 ${rivName(r)} أفلس! أراضيه هتتباع في مزاد ومحلاته اتقفلت`, 'good'); toast(`💥 ${rivShort(r)} أفلس!`, 'good', 6000);
+  for (const n of r.lands) if (!R.auction) { R.auction = { n, start: Math.round(landOffer(n).price * 0.6 / 1000) * 1000, top: Math.round(landOffer(n).price * 0.6 / 1000) * 1000, who: null, ends: (state.day + 1) * 1440 + 18 * 60, bids: [] }; }
+  r.lands = []; for (const b of Object.values(r.biz)) b.p = 0;
+  try { refreshBlockSigns(); } catch (e) {}
+}
+// تمن نشاطه لو هيبيعهولك
+function rivBizPrice(r, s, desperate) { const b = r.biz[s], v = RIV_SEC[s].cost * b.p; return Math.round(v * (desperate ? 0.55 + r.broke * -0.05 : 1.1 + rivTr(r).greed * 0.4 + r.rel.hate / 250) / 1000) * 1000; }
+function rivBuyBiz(r, s, price) {
+  const b = r.biz[s]; if (!b || !b.p) return false;
+  if (!payWB(price, `شراء نشاط ${rivShort(r)} في ${RIV_SEC[s].name}`)) { toast('فلوسك مش مكفية', 'bad'); return false; }
+  const R = RIV(), daily = Math.round(RIV_SEC[s].base * b.p * 0.12);
+  R.br.push({ name: `فروع ${rivShort(r)} (${RIV_SEC[s].name})`, s, daily, day: state.day });
+  r.cash += price; b.p = 0; r.rel.respect = clamp(r.rel.respect + 15, 0, 100);
+  rivNews(`🏆 اشتريت نشاط ${rivShort(r)} في ${RIV_SEC[s].name} بـ ${fmt(price)} · بقى بيكسبك حوالي ${fmt(daily)} في اليوم`, 'good');
+  toast(`🏆 اشتريت فروع ${rivShort(r)} في ${RIV_SEC[s].name}`, 'good', 6000); save(); return true;
+}
+// ---- حركاتك انت ضدهم ----
+const RIV_MY_DIRTY = {
+  rumor: { name: '🗣️ إشاعة ضده', cost: 15000, desc: 'زباينه في نشاط بيقلوا أسبوع', expose: 0.3 },
+  report: { name: '👮 بلّغ عنه التموين', cost: 5000, desc: 'لو عنده مخالفات فرعه بيتقفل يومين وبيدفع غرامة', expose: 0.2 },
+  steal: { name: '💼 اخطف موظفينه الشاطرين', cost: 30000, desc: 'فروعه بتضعف وزباينك بيزيدوا أسبوع', expose: 0.35 },
+  customs: { name: '🚢 عطّل بضاعته في الجمارك', cost: 50000, desc: 'نشاط الصين بتاعه بيقف 3 أيام', expose: 0.3 },
+};
+function rivMyDirty(r, k, s) {
+  const D = RIV_MY_DIRTY[k], t = rivTr(r), b = r.biz[s];
+  if (!b || !b.p) { toast('معندوش نشاط هنا', 'bad'); return; }
+  if (!payWB(D.cost, `${D.name.replace(/^\S+\s/, '')} (${rivShort(r)})`)) { toast('الفلوس مش مكفية', 'bad'); return; }
+  const exposed = Math.random() < D.expose * (0.6 + t.smart * 0.6);
+  let res = '';
+  if (k === 'rumor') { b.deb = 0.35; b.debDay = state.day + 7; res = `الإشاعة انتشرت وزباين ${rivShort(r)} في ${RIV_SEC[s].name} قلّوا`; }
+  if (k === 'report') { if (Math.random() < 0.3 + t.dirty * 0.5) { b.closed = state.day + 2; r.cash -= 60000; res = `التموين قفل فرع ${rivShort(r)} يومين وغرّمه`; } else res = 'التفتيش راح ومالقاش حاجة'; }
+  if (k === 'steal') { b.p = Math.max(0, Math.round((b.p - 0.12) * 100) / 100); RIV().buffs[s] = { v: 0.08, until: state.day + 7 }; res = `خدت أشطر موظفين ${rivShort(r)} وزباينك بيزيدوا`; }
+  if (k === 'customs') { if (s !== 'cns') { toast('دي للاستيراد بس', 'bad'); return; } b.closed = state.day + 3; res = `بضاعة ${rivShort(r)} واقفة في الجمارك 3 أيام`; }
+  r.rel.hate = clamp(r.rel.hate + (exposed ? 30 : 5), 0, 100);
+  if (exposed) { r.rel.fear = clamp(r.rel.fear - 10, 0, 100); if (state.rep) rep().score = clamp(rep().score - 0.2, 0, 5); rivMem(r, `عرفت إنك ورا ${D.name.replace(/^\S+\s/, '')}`); setTimeout(() => rivSay(r, pick(RIV_LINES.caughtYou[rivDef(r.id).voice])), 2000); res += ` · بس ${rivShort(r)} عرف إنك ورا الموضوع 😬`; }
+  else r.rel.fear = clamp(r.rel.fear + 6, 0, 100);
+  rivNews(`🕵️ ${res}`, exposed ? 'bad' : 'good'); toast(res, exposed ? 'bad' : 'good', 5000); save();
+}
+// قضية بالأدلة
+function rivSue(r) {
+  const R = RIV(), ev = R.ev.filter(e => e.rid === r.id && !e.used);
+  if (!ev.length) { toast('معاكش أدلة ضده', 'bad'); return; }
+  const fee = 25000; if (!payWB(fee, `أتعاب محامي (قضية ضد ${rivShort(r)})`)) { toast('مش معاك أتعاب المحامي', 'bad'); return; }
+  ev.forEach(e => e.used = true);
+  const p = clamp(0.45 + ev.length * 0.12 - rivTr(r).smart * 0.15, 0.2, 0.9);
+  if (Math.random() < p) { const comp = Math.round(150000 * ev.length * (1 + rivWorth(r) / 2e7)); r.cash -= comp; Economy.add(comp, `تعويض من ${rivShort(r)} بحكم المحكمة`); r.rel.fear = clamp(r.rel.fear + 30, 0, 100); r.rel.hate = clamp(r.rel.hate + 20, 0, 100); r.rel.respect = clamp(r.rel.respect + 10, 0, 100); rivNews(`⚖️ كسبت القضية ضد ${rivShort(r)} وأخدت تعويض ${fmt(comp)}`, 'good'); toast(`⚖️ كسبت القضية! تعويض ${fmt(comp)}`, 'good', 6000); setTimeout(() => rivSay(r, pick(RIV_LINES.lostCase[rivDef(r.id).voice])), 2500); }
+  else { r.rel.hate = clamp(r.rel.hate + 10, 0, 100); rivNews(`⚖️ القضية ضد ${rivShort(r)} اترفضت · محاميه كان أشطر`, 'bad'); toast('⚖️ القضية اترفضت', 'bad', 5000); setTimeout(() => rivSay(r, pick(RIV_LINES.smug[rivDef(r.id).voice])), 2500); }
+  save();
+}
+// ---- أغنى 10 ----
+function rivRank() {
+  const R = RIV(), out = [{ name: 'إنت', w: typeof netWorth === 'function' ? netWorth() : state.money, me: true, icon: '⭐' }];
+  for (const r of R.list) if (r.alive) out.push({ name: rivName(r), w: rivWorth(r), icon: rivDef(r.id).icon, rid: r.id });
+  for (const [nm, w] of RIV_TYCOONS) out.push({ name: nm, w: Math.round(w * (1 + state.day * 0.002)), icon: '🏛️' });
+  return out.sort((a, b) => b.w - a.w).slice(0, 10).concat(out.sort((a, b) => b.w - a.w).slice(10).filter(x => x.me));
+}
+
+// ---- كلامهم: كل واحد بلهجته (الحاج الكبير، الشاب، المدام، المعلم) ----
+const RIV_LINES = {
+  taunt: { old: ['يا ابني أنا في السوق ده من أربعين سنة، إنت لسه بتحبي', 'شد حيلك… السوق مبيرحمش', 'سمعت إنك بتكبر… برافو، بس متكبرش أوي 😏'], young: ['شد حيلك يا معلم، أنا سابقك بخطوة 😏', 'السوق محتاج حد سريع… وإنت بطيء شوية', 'شفت أسعاري الجديدة؟ 😎'], lady: ['المنافسة الشريفة حلوة يا أستاذ، بس متزعلش لما تخسر 🙂', 'حضرتك شاطر، بس الشطارة لوحدها مش كفاية', 'نشوفك في المزاد الجاي 🙂'], street: ['خلي بالك من محلك يا باشا… الدنيا مش أمان 😏', 'السوق ده ليه كبير، وإنت مش كبيره', 'هتتعب يا حبيبي… سيبها لأهلها'] },
+  threat: { old: ['اللي بيلعب معايا بيندم يا ابني', 'إنت كده بتلعب بالنار', 'متخلنيش أزعل… زعلي وحش'], young: ['إنت بدأت الحرب، استحمل بقى', 'هوريك اللعب الحقيقي', 'متستهونش بيا'], lady: ['حضرتك اخترت الطريق الصعب', 'أنا مبحبش الحروب، بس لو اتفرضت عليا هكسبها', 'خلّي بالك من خطوتك الجاية'], street: ['إنت كده عديت حدودك يا باشا', 'اللي بيقرب من رزقي مبيلاقيش رزقه', 'اعمل حسابك… الأيام جاية'] },
+  respect: { old: ['والله إنك راجل شاطر يا ابني', 'إنت فكرتني بنفسي وأنا صغير'], young: ['بصراحة احترامي ليك، لعبك نضيف', 'إنت منافس محترم يا معلم'], lady: ['حضرتك منافس محترم، وده نادر', 'بحترم طريقتك في الشغل'], street: ['إنت جدع يا باشا، والجدعنة بتتحفظ', 'ماشي يا معلم، إنت تستاهل'] },
+  expand: { old: ['فتحت فرع جديد جنبك يا ابني… السوق يساع الكل 😏'], young: ['افتتاح جديد 🎉 مستنيك تيجي تتفرج 😎'], lady: ['فتحنا فرع جديد، وأتمنى لحضرتك التوفيق برضه 🙂'], street: ['فتحت محل جنبك، شوف زباينك هيروحوا فين 😏'] },
+  cut: { old: ['الأسعار عندي نزلت… الزباين عارفة طريقها 😏'], young: ['أسعاري نزلت النهارده، الحق نفسك 😎'], lady: ['خفّضنا الأسعار، والمنافسة في مصلحة الزبون 🙂'], street: ['كسّرت الأسعار يا باشا… وريني هتعمل إيه 😏'] },
+  truceOffer: { old: ['يا ابني الحرب دي هتخسّرنا إحنا الاتنين. نهدّي اللعب أسبوعين؟'], young: ['إيه رأيك نوقف تكسير الأسعار شوية؟ الاتنين بنخسر'], lady: ['أقترح هدنة: محدش يكسّر أسعار التاني أسبوعين. موافق؟'], street: ['بص يا باشا، نخليها سلام أحسن. محدش يدوس على رجل التاني. ماشي؟'] },
+  smug: { old: ['الدنيا دوّارة يا ابني 😏', 'قلتلك السوق مبيرحمش'], young: ['معلش يا معلم، دي شطارة 😎', 'حظ أوفر المرة الجاية 😏'], lady: ['حظ أوفر المرة الجاية يا أستاذ 🙂'], street: ['ألف سلامة يا باشا 😏', 'الدنيا مش أمان زي ما قلتلك'] },
+  betrayed: { old: ['اتفقنا على هدنة وإنت كسّرت الأسعار؟ ماشي يا ابني… هتشوف'], young: ['كده؟ اتفقنا وخلفت؟ تمام، الحرب رجعت'], lady: ['حضرتك خلفت الاتفاق. وأنا مبنساش'], street: ['خنت الاتفاق يا باشا؟ ده عيب في السوق… هتدفع التمن'] },
+  caughtYou: { old: ['عارف إنك اللي ورا الموضوع يا ابني… مكنتش متوقعها منك'], young: ['شاطر… بس أنا عرفت إنه إنت 😏'], lady: ['حضرتك فاكرني مش هعرف؟'], street: ['عرفتك يا باشا… والحساب يجمع'] },
+  lostCase: { old: ['المحكمة دي مش آخر الكلام يا ابني'], young: ['كسبت جولة، مش الماتش'], lady: ['تمام… حضرتك كسبت المرة دي'], street: ['ماشي يا باشا، الأيام بينّا'] },
+  angry: { old: ['احترم نفسك يا ولد!', 'أنا محدش بيكلمني كده'], young: ['ألفاظك يا معلم!', 'متغلطش'], lady: ['لو سمحت تحترم نفسك', 'مش هكمّل كلام بالأسلوب ده'], street: ['إنت بتغلط في مين يا باشا؟!', 'خلي بالك من كلامك'] },
+  counterThreat: { old: ['إنت بتهددني أنا؟! ده أنا أشتريك وأبيعك', 'روح العب بعيد يا ابني'], young: ['هههه هتعمل إيه يعني؟ 😏', 'وريني'], lady: ['التهديد مش أسلوبي ولا بيخوّفني', 'نشوف مين هيندم'], street: ['تهددني أنا؟! إنت متعرفنيش يا باشا', 'كلامك ده هيكلفك كتير'] },
+  calm: { old: ['اهدى يا ابني، مفيش داعي للكلام ده'], young: ['ماشي، براحة'], lady: ['خلينا نتكلم بهدوء'], street: ['خلاص يا باشا، براحة'] },
+  greet: { old: ['أهلًا يا ابني', 'أهلًا… خير؟'], young: ['أهلًا يا معلم 😎', 'إيه الأخبار؟'], lady: ['أهلًا يا أستاذ 🙂', 'مساء الخير، اتفضل'], street: ['أهلًا يا باشا', 'يا مرحب يا معلم'] },
+  greetCold: { old: ['عايز إيه؟'], young: ['خير؟'], lady: ['نعم؟'], street: ['خير يا باشا؟ 😒'] },
+  brag: { old: ['السوق ماشي معايا زي الفل الحمد لله', 'فروعي مليانة زباين'], young: ['الشغل طاير 🚀', 'كسبنا كتير الشهر ده'], lady: ['الحمد لله الاستثمارات ماشية كويس'], street: ['الدنيا ماشية يا باشا 💰'] },
+  complain: { old: ['السوق واقف اليومين دول'], young: ['الدنيا هادية شوية'], lady: ['السوق صعب الأيام دي'], street: ['الدنيا واقفة يا باشا'] },
+  deny: { old: ['إنت بتتهمني أنا؟ معاك دليل؟'], young: ['دليلك فين؟ 😏'], lady: ['ده اتهام خطير من غير دليل'], street: ['أنا؟! أعوذ بالله يا باشا 😇'] },
+  yes: { old: ['اتفقنا يا ابني'], young: ['ديل 🤝'], lady: ['تمام، اتفقنا 🙂'], street: ['ماشي يا باشا، كلمتك كلمة'] },
+  no: { old: ['لا يا ابني، مينفعش'], young: ['لا مش هينفع'], lady: ['للأسف مش هقدر أوافق'], street: ['لا يا باشا، الكلام ده مايمشيش'] },
+  neutral: { old: ['ماشي يا ابني', 'اممم… قول اللي عندك'], young: ['أوكي', 'ماشي، وبعدين؟'], lady: ['تمام', 'فهمت، وبعدين؟'], street: ['ماشي يا باشا', 'قول يا معلم'] },
+  thanks: { old: ['الله يكرمك يا ابني'], young: ['تسلم يا معلم'], lady: ['ميرسي 🙂'], street: ['تسلم يا باشا'] },
+};
+const rivL = (r, k) => pick((RIV_LINES[k] || RIV_LINES.neutral)[rivDef(r.id).voice]);
+// «5 مليون»، «750 ألف»، «2.5م»
+function rivNum(t) {
+  const m = t.match(/(\d+(?:[.,]\d+)?)\s*(مليار|مليون|ملايين|م\b|الف|الاف|ك\b|k\b|m\b)?/i); if (!m) return null;
+  let v = parseFloat(m[1].replace(',', '.')); const u = m[2] || '';
+  if (/مليار/.test(u)) v *= 1e9; else if (/مليون|ملايين|^م$|^m$/i.test(u)) v *= 1e6; else if (/الف|الاف|^ك$|^k$/i.test(u)) v *= 1e3;
+  return v >= 1000 ? Math.round(v) : null;
+}
+const rivSecOf = t => /سوبر|ماركت|هايبر/.test(t) ? 'mk' : /صين|استيراد|صيني|بازار/.test(t) ? 'cns' : /مكتب|ادوات|مكتبه|كشاكيل/.test(t) ? 'shop' : null;
+// بيسمعك وبيرد ويتصرف (هدنة، شراكة، بيع/شرا أراضي ونشاط، تسوية، تهديد…)
+function rivHear(r, text) {
+  const f = NLU.analyze(text), t = f.text, tr = rivTr(r), R = RIV(), rel = r.rel, out = [];
+  const num = rivNum(t), blkM = t.match(/بلوك\s*(\d{1,2})/), sec = rivSecOf(t);
+  const yes = /^(موافق|ماشي|اتفقنا|تمام|اوك|اوكي|ايوه|اكيد|ديل|اتفاق|مقبول)/.test(t), no = /^(لا|لأ|مش موافق|مرفوض)/.test(t);
+  const say = k => out.push(rivL(r, k));
+  rel.hate = clamp(rel.hate, 0, 100);
+  // رد على عرض مفتوح
+  if (r.neg && (yes || no || (num && r.neg.ask))) {
+    const N = r.neg;
+    if (no) { r.neg = null; say('neutral'); return out; }
+    if (num && N.ask && !yes) {   // فِصال
+      const min = N.min || N.ask * 0.9, mineBuy = ['buyland', 'buybiz'].includes(N.type);
+      if (mineBuy ? num >= min : num <= N.ask * 1.1) { N.ask = num; }
+      else if (mineBuy && num >= min * 0.8) { N.ask = Math.round((num + N.ask) / 2 / 1000) * 1000; out.push(`${pick(['نقسم البلد نصين', 'خليها', 'آخر كلام'])}: ${fmt(N.ask)}`); return out; }
+      else { out.push(pick(['ده كلام؟ 😏', 'لا ده قليل أوي', 'إنت بتهزر؟'])); return out; }
+    }
+    return rivExec(r, N, out);
+  }
+  if (f.rude) { rel.hate += 20; rel.respect -= 5; say('angry'); rivMem(r, 'شتمني'); return out; }
+  if (/(هدمرك|هوريك|هتندم|هخرب|هقفلك|حسابك معايا|هاكلك|هتشوف|مش قدي|هطلعك|هكسرك|هقضي عليك)/.test(t)) {
+    if (tr.pride > 0.6 && rel.fear < 45) { rel.hate += 12; say('counterThreat'); } else { rel.fear += 8; say('calm'); }
+    rivMem(r, 'هددني'); return out;
+  }
+  if (/(انت اللي|عارف انك|معايا دليل|معايا ادله|هبلغ عنك|هرفع قضيه|المحكمه|البوليس|النيابه)/.test(t)) {
+    const ev = R.ev.filter(e => e.rid === r.id && !e.used).length;
+    if (!ev) { say('deny'); rel.hate += 5; return out; }
+    rel.fear += 15 + ev * 5;
+    if (tr.smart > 0.6 || rel.fear > 50) { const ask = Math.round(120000 * ev * (1 + rivWorth(r) / 3e7) / 1000) * 1000; r.neg = { type: 'settle', ask, at: state.day }; out.push(`${pick(['خلينا نتفاهم بعيد عن المحاكم', 'مفيش داعي للشوشرة'])}… خد ${fmt(ask)} تعويض وننسى الموضوع. موافق؟`); }
+    else say('counterThreat');
+    return out;
+  }
+  if (/(هدنه|نهدي|نتفق|متكسرش|نوقف|نبطل|صلح|نتصالح|سلام بينا|كفايه حرب|نهادن)/.test(t)) {
+    const p = 0.25 + tr.honor * 0.35 + (r.cash < 0 ? 0.3 : 0) + rel.respect / 250 - rel.hate / 160 + (rel.fear / 300);
+    if (r.truce > state.day) { out.push(pick(['ما إحنا في هدنة أصلًا', 'الهدنة لسه شغالة'])); return out; }
+    if (Math.random() < p) return rivExec(r, { type: 'truce' }, out);
+    say('no'); out.push(pick(['الحرب لسه في أولها', 'لما تبطّل تكسّر أسعار نتكلم'])); return out;
+  }
+  if (/(شراكه|نتشارك|نشتغل سوا|شريك|نشترك|مشروع سوا|ندخل سوا|اشاركك|اشارك|نشارك|مشروع مع بعض|ادخل معاك)/.test(t)) {
+    if (rel.trust < 30 || rel.hate > 55) { say('no'); out.push('أنا مبشاركش حد معرفوش كويس'); return out; }
+    const amt = num || Math.round(Math.max(500000, Math.min(5e6, state.money * 0.4)) / 100000) * 100000;
+    if (r.cash < amt) { out.push('مش معايا سيولة دلوقتي للمبلغ ده'); return out; }
+    r.neg = { type: 'jv', ask: amt, at: state.day }; out.push(`ماشي… كل واحد يحط ${fmt(amt)} ونقسم الربح شهر، وبعدها كل واحد ياخد فلوسه. موافق؟`); return out;
+  }
+  if (blkM) {
+    const n = +blkM[1], own = rivLandOwner(n);
+    if (own && own.id === r.id) {
+      const v = landOffer(n).price, min = Math.round(v * (1.08 + tr.greed * 0.25 + rel.hate / 250) / 1000) * 1000, ask = Math.round(min * 1.12 / 1000) * 1000;
+      if (rel.hate > 75) { out.push(`أبيعلك أنا؟ ولا بمليار 😏`); return out; }
+      r.neg = { type: 'buyland', n, ask, min, at: state.day };
+      if (num) { if (num >= min) { r.neg.ask = num; return rivExec(r, r.neg, out); } out.push(num >= min * 0.8 ? `لا، أقل من ${fmt(min)} مش هبيع` : 'ده كلام؟ 😏'); return out; }
+      out.push(`بلوك ${n}؟ تمنه ${fmt(ask)}. موافق؟`); return out;
+    }
+    if (state.con && state.con.lands[n]) {
+      if (state.con.projects[n]) { out.push('دي عليها مشروعك… مش هشتريها'); return out; }
+      const bid = Math.round(landOffer(n).price * (0.95 + tr.greed * 0.1) / 1000) * 1000;
+      if (r.cash < bid) { out.push('مش معايا سيولة دلوقتي'); return out; }
+      r.neg = { type: 'sellland', n, ask: bid, at: state.day }; out.push(`أشتري منك بلوك ${n} بـ ${fmt(bid)}. موافق؟`); return out;
+    }
+    out.push(own ? `دي بتاعة ${rivShort(own)} مش بتاعتي` : 'دي لسه مع الحكومة، روح مكتب المقاولات'); return out;
+  }
+  if (/(اشتري|هشتري|تبيع|تبيعلي|بيعلي|ابيعك)/.test(t) && sec) {
+    const b = r.biz[sec]; if (!b || !b.p) { out.push('معنديش حاجة في المجال ده'); return out; }
+    const ask = rivBizPrice(r, sec, r.cash < 0), min = Math.round(ask * 0.9 / 1000) * 1000;
+    if (rel.hate > 70 && r.cash > 0) { out.push('أبيعلك فروعي؟ ده بعدك 😏'); return out; }
+    r.neg = { type: 'buybiz', s: sec, ask, min, at: state.day };
+    if (num) { if (num >= min) { r.neg.ask = num; return rivExec(r, r.neg, out); } out.push(`لا، أقل من ${fmt(min)} مش هبيع`); return out; }
+    out.push(`فروعي في ${RIV_SEC[sec].name}؟ ${fmt(ask)}. موافق؟`); return out;
+  }
+  if (/(خد|هديك|هدفعلك|ادفعلك)/.test(t) && num && /(وابعد|وسيبني|ومتقربش|وتبطل|ونخلص|وتسيب|ونهدي)/.test(t)) {
+    if (tr.greed > 0.55 && num >= rivWorth(r) * 0.02) { r.neg = { type: 'payoff', ask: num }; return rivExec(r, r.neg, out); }
+    out.push(pick(['أنا مش بتشتري بالفلوس دي', 'لا يا حبيبي… كبّر المبلغ 😏'])); return out;
+  }
+  if (f.intents.apology) { if (tr.honor > 0.45) { rel.hate -= 15; rel.trust += 5; out.push(pick(['ماشي، المسامح كريم', 'خلاص، صفحة جديدة'])); } else { rel.hate -= 5; out.push(pick(['الكلام سهل', 'نشوف أفعالك'])); } return out; }
+  if (f.intents.person || f.intents.thanks || /(احترمك|راجل محترم|كبير|معلم|استاذ|بحترمك|منافس شريف)/.test(t)) { rel.respect += 5; rel.hate -= 3; say(f.intents.thanks ? 'thanks' : 'respect'); return out; }
+  if (/(شغلك|السوق|اخبارك|مكسب|خسران|فلوسك|ماشي ازاي|عامل ايه)/.test(t)) { say((r.lastProf || 0) >= 0 ? 'brag' : 'complain'); return out; }
+  if (f.intents.greet) { say(rel.hate > 55 ? 'greetCold' : 'greet'); return out; }
+  if (f.intents.bye) { out.push(pick(['مع السلامة', 'سلام'])); return out; }
+  say(rel.hate > 60 ? 'threat' : rel.respect > 60 ? 'respect' : 'neutral');
+  return out;
+}
+// تنفيذ الاتفاق
+function rivExec(r, N, out) {
+  const R = RIV(); r.neg = null;
+  switch (N.type) {
+    case 'truce': r.truce = state.day + 14; r.betray = 0; for (const b of Object.values(r.biz)) b.price = Math.max(b.price, 1); r.rel.trust = clamp(r.rel.trust + 8, 0, 100); r.rel.hate = clamp(r.rel.hate - 10, 0, 100); rivNews(`🕊️ هدنة مع ${rivShort(r)} لمدة أسبوعين: محدش يكسّر أسعار ولا يلعب وسخ`, 'good'); out.push(rivL(r, 'yes'), 'بس لو كسّرت أسعارك تبقى إنت اللي بدأت'); break;
+    case 'jv': if (!payWB(N.ask, `رأس مالك في الشراكة مع ${rivShort(r)}`)) { out.push('معاكش الفلوس دي يا معلم 😏'); break; } r.cash -= N.ask; R.jv.push({ rid: r.id, cap: N.ask, end: state.day + 30 }); r.rel.trust = clamp(r.rel.trust + 10, 0, 100); rivNews(`🤝 شراكة مع ${rivShort(r)}: كل واحد حط ${fmt(N.ask)} لمدة شهر`, 'good'); out.push(rivL(r, 'yes'), 'الأرباح هتنزلك كل يوم'); break;
+    case 'buyland': { const n = N.n; if (!rivLandOwner(n) || rivLandOwner(n).id !== r.id) { out.push('الأرض دي مبقتش معايا'); break; } if (!payWB(N.ask, `شراء أرض بلوك ${n} من ${rivShort(r)}`)) { out.push('هات الفلوس الأول 😏'); break; } r.lands = r.lands.filter(x => x !== n); r.cash += N.ask; const C = CON(); C.lands[n] = { day: state.day, ppm: Math.round(N.ask / BLOCK_M2), price: N.ask, plan: 'cash', total: N.ask, paid: N.ask, left: 0, per: 0, next: 0, late: 0, lateDays: 0, stock: {} }; try { conRefresh(n); refreshBlockSigns(); } catch (e) {} rivNews(`🏜️ اشتريت بلوك ${n} من ${rivShort(r)} بـ ${fmt(N.ask)}`, 'good'); out.push(rivL(r, 'yes'), `بلوك ${n} بقى بتاعك، مبروك`); break; }
+    case 'sellland': { const n = N.n, C = CON(); if (!C.lands[n] || C.projects[n]) { out.push('الأرض دي مش متاحة'); break; } if (C.lands[n].left) { out.push('خلّص أقساطها الأول'); break; } delete C.lands[n]; r.lands.push(n); r.cash -= N.ask; Economy.add(N.ask, `بيع أرض بلوك ${n} لـ${rivShort(r)}`); try { conRefresh(n); refreshBlockSigns(); } catch (e) {} rivNews(`🏜️ بعت بلوك ${n} لـ${rivShort(r)} بـ ${fmt(N.ask)}`); out.push(rivL(r, 'yes')); break; }
+    case 'buybiz': if (rivBuyBiz(r, N.s, N.ask)) out.push(rivL(r, 'yes'), 'الفروع بقت بتاعتك، ربنا يوفقك'); else out.push('هات الفلوس الأول 😏'); break;
+    case 'sellbiz': if (rivBuyBiz(r, N.s, N.ask)) out.push('تمام، الفروع بقت بتاعتك'); else out.push('معاكش الفلوس؟ خلاص'); break;
+    case 'settle': { Economy.add(N.ask, `تسوية مع ${rivShort(r)}`); r.cash -= N.ask; R.ev.filter(e => e.rid === r.id).forEach(e => e.used = true); r.rel.fear = clamp(r.rel.fear + 10, 0, 100); r.truce = state.day + 10; rivNews(`🤝 ${rivShort(r)} دفعلك ${fmt(N.ask)} تسوية عشان ماترفعش قضية`, 'good'); out.push('خلاص، الموضوع اتقفل'); break; }
+    case 'payoff': if (!payWB(N.ask, `فلوس لـ${rivShort(r)} عشان يبعد`)) { out.push('معاكش الفلوس دي 😏'); break; } r.cash += N.ask; r.truce = state.day + 30; r.rel.hate = clamp(r.rel.hate - 25, 0, 100); rivNews(`💰 دفعت لـ${rivShort(r)} ${fmt(N.ask)} وبعد عنك شهر`, ''); out.push(rivL(r, 'yes'), 'شهر محدش هيقرب منك'); break;
+  }
+  save(); return out;
+}
+
+// ---- شاشة «المنافسين» في الموبايل ----
+let rivTab = 'arena', rivChat = null, rivPick = null;
+const rivBar = (v, c) => `<span class="rbar"><i style="width:${Math.round(clamp(v, 0, 100))}%;background:${c}"></i></span>`;
+function rivAppHTML() {
+  const R = RIV();
+  if (rivChat && rivOf(rivChat)) return rivChatHTML(rivOf(rivChat));
+  const tabs = [['arena', '🥊 الساحة'], ['rich', '💰 أغنى 10'], ['auction', `🔨 المزادات${R.auction ? ' •' : ''}`], ['protect', '🛡️ الحماية'], ['news', '📰 الأخبار']];
+  let h = `<div class="seg rtabs">${tabs.map(([k, n]) => `<button type="button" class="${rivTab === k ? 'on' : ''}" data-act="rvTab:${k}">${n}</button>`).join('')}</div>`;
+  if (rivTab === 'arena') {
+    if (R.poach) h += `<div class="hr-row warn"><div class="hr-top"><b>💼 ${R.poach.name} جاله عرض من ${rivShort(rivOf(R.poach.rid))}</b></div><small class="when">لو ماردّتش خلال ${fmtDur(Math.max(0, R.poach.until - absNow()))} هيمشي</small><div class="actions"><button class="btn pri" type="button" data-act="rvKeep">ادفعله ${fmt(R.poach.bonus)} ويفضل</button><button class="btn" type="button" data-act="rvLet">سيبه يمشي</button></div></div>`;
+    for (const r of R.list) {
+      const d = rivDef(r.id), ev = R.ev.filter(e => e.rid === r.id && !e.used).length, T = R.msgs[r.id] || [];
+      const secs = Object.entries(r.biz).filter(([, b]) => b.p > 0).map(([s, b]) => `${RIV_SEC[s].icon} ${RIV_SEC[s].name}: قوة ${Math.round(b.p * 100)}% · أسعار ${Math.round(b.price * 100)}%${b.closed > state.day ? ' · مقفول' : ''}`).join('<br>');
+      const status = !r.alive ? '💥 أفلس' : r.truce > state.day ? `🕊️ هدنة لحد يوم ${r.truce}` : r.cash < 0 ? '📉 بيخسر' : '';
+      h += `<div class="hr-row ${r.alive ? '' : 'dim'}"><div class="hr-top"><b>${d.icon} ${d.name}${d.kind === 'nemesis' ? ' · عدوّك اللدود' : ''}</b><span>${fmt(rivWorth(r))}</span></div>
+        <small class="when">${d.title}${status ? ' · ' + status : ''}</small>
+        ${r.alive ? `<div class="rrel"><small>😡 كره ${rivBar(r.rel.hate, '#c0392b')}</small><small>🎩 احترام ${rivBar(r.rel.respect, '#f4b81c')}</small><small>🤝 ثقة ${rivBar(r.rel.trust, '#27ae60')}</small><small>😨 خوف ${rivBar(r.rel.fear, '#8e44ad')}</small></div>
+        <small class="when">${secs || 'معندوش فروع منافسة دلوقتي'}${r.lands.length ? `<br>🏜️ أراضي العاصمة: ${r.lands.map(n => 'بلوك ' + n).join('، ')}` : ''}</small>
+        <div class="actions"><button class="btn" type="button" data-act="rvChat:${r.id}">💬 كلّمه${T.length ? '' : ''}</button><button class="btn" type="button" data-act="rvPick:${r.id}">🕵️ العب ضده</button>${ev ? `<button class="btn pri" type="button" data-act="rvSue:${r.id}">⚖️ قضية (${ev} دليل)</button>` : ''}</div>
+        ${rivPick === r.id ? rivDirtyHTML(r) : ''}` : ''}</div>`;
+    }
+    if (R.small.length) h += `<h3 class="sec">تجار صغيرين</h3>${R.small.map(t => `<div class="hr-row"><div class="hr-top"><b>🏪 ${t.name}</b><span>${RIV_SEC[t.s].icon} ${RIV_SEC[t.s].name}</span></div><small class="when">أسعار ${Math.round(t.price * 100)}% · بقاله ${t.days} يوم</small></div>`).join('')}`;
+    if (R.br.length) h += `<h3 class="sec">فروع اشتريتها منهم</h3>${R.br.map(b => `<div class="hr-row"><div class="hr-top"><b>🏆 ${b.name}</b><span>~${fmt(b.daily)}/يوم</span></div></div>`).join('')}`;
+    if (R.jv.length) h += `<h3 class="sec">شراكات</h3>${R.jv.map(j => `<div class="hr-row"><div class="hr-top"><b>🤝 مع ${rivShort(rivOf(j.rid))}</b><span>${fmt(j.cap)}</span></div><small class="when">بتخلص يوم ${j.end}</small></div>`).join('')}`;
+    h += `<p class="note">المنافسين بيراقبوا أسعارك وفلوسك وحركاتك. كسّر أسعارك أو اعمل عروض وإعلانات عشان ترجّع زباينك، أو كلّمهم: هدنة، شراكة، تشتري فروعهم أو أراضيهم، أو تهددهم.</p>`;
+  } else if (rivTab === 'rich') {
+    const rk = rivRank();
+    h += `<table class="ledger"><tbody>${rk.map((x, i) => `<tr class="${x.me ? 'me' : ''}"><td>${x.me && i >= 10 ? '…' : i + 1}. ${x.icon} ${x.name}</td><td>${fmt(x.w)}</td></tr>`).join('')}</tbody></table><p class="note">ثروتك = فلوسك + البنك + محلاتك + أراضيك + مشاريعك + عربياتك.</p>`;
+  } else if (rivTab === 'auction') {
+    const A = R.auction;
+    if (!A) h += '<p class="note">مفيش مزاد دلوقتي. مزادات أراضي العاصمة بتنزل كل كام يوم، وأراضي اللي بيفلس بتتباع في مزاد.</p>';
+    else {
+      const who = A.who === 'me' ? 'إنت' : A.who ? rivShort(rivOf(A.who)) : 'لسه محدش';
+      h += `<div class="two"><div class="stat acc"><small>🔨 بلوك ${A.n} · ${blkDesc(A.n)}</small><b>${fmt(A.top)}</b><small>أعلى سعر: ${who}</small></div><div class="stat"><small>بيقفل بعد</small><b>${fmtDur(Math.max(0, A.ends - absNow()))}</b><small>السعر الرسمي ${fmt(landOffer(A.n).price)}</small></div></div>
+        <div class="actions">${[2, 5, 10].map(p => `<button class="btn ${p === 5 ? 'pri' : ''}" type="button" data-act="rvBid:${p}">زايد +${p}% · ${fmt(Math.round(A.top * (1 + p / 100) / 1000) * 1000)}</button>`).join('')}</div>
+        <table class="ledger"><tbody>${A.bids.map(b => `<tr><td>${b.who === 'me' ? '⭐ إنت' : rivDef(b.who).icon + ' ' + rivShort(rivOf(b.who))} · ${b.t}</td><td>${fmt(b.v)}</td></tr>`).join('')}</tbody></table>
+        <p class="note">المنافسين بيزايدوا لحد القيمة اللي هما شايفينها للأرض. لو كسبت هتدفع من المحفظة أو البنك آخر المزاد.</p>`;
+    }
+  } else if (rivTab === 'protect') {
+    h += `<div class="setting"><b>🛡️ أمن خاص لمحلاتك ومخازنك</b><small>بيقلل نجاح السرقة والحريقة والإشاعات، وبيزوّد فرصة إنك تمسك دليل ضد اللي بيعمل كده.</small><div class="seg">${RIV_SEC_DAYS.map((c, i) => `<button type="button" class="${R.sec === i ? 'on' : ''}" data-act="rvSec:${i}">${i ? `${['', 'عادي', 'قوي', 'مشدد'][i]} · ${fmt(c)}/يوم` : 'من غير'}</button>`).join('')}</div></div>
+      <div class="setting"><b>📄 تأمين على المخازن</b><small>بيعوّضك 80% من السرقة والحريقة · ${fmt(RIV_INS_DAY)} في اليوم.</small><div class="seg"><button type="button" class="${R.ins ? 'on' : ''}" data-act="rvIns:1">مأمّن</button><button type="button" class="${R.ins ? '' : 'on'}" data-act="rvIns:0">من غير</button></div></div>
+      <h3 class="sec">🕵️ الأدلة اللي معاك</h3>${R.ev.filter(e => !e.used).length ? R.ev.filter(e => !e.used).map(e => `<div class="hr-row"><div class="hr-top"><b>${rivDef(e.rid).icon} ${rivShort(rivOf(e.rid))}</b><span>يوم ${e.d}</span></div><small class="when">${RIV_DIRTY_TXT[e.k]}</small></div>`).join('') : '<p class="note">مفيش أدلة لسه. الأمن الخاص بيزوّد فرصتك.</p>'}`;
+  } else {
+    h += R.log.length ? `<table class="ledger"><tbody>${R.log.map(x => `<tr class="${x.kind}"><td>ي${x.d} · ${x.txt}</td></tr>`).join('')}</tbody></table>` : '<p class="note">مفيش أخبار لسه.</p>';
+  }
+  return h;
+}
+function rivDirtyHTML(r) {
+  const secs = Object.entries(r.biz).filter(([, b]) => b.p > 0).map(([s]) => s);
+  if (!secs.length) return '<p class="note">معندوش فروع تلعب ضدها.</p>';
+  return `<div class="rdirty">${Object.entries(RIV_MY_DIRTY).map(([k, D]) => secs.filter(s => k !== 'customs' || s === 'cns').map(s => `<button class="big" type="button" data-act="rvDo:${r.id}|${k}|${s}"><b>${D.name} · ${RIV_SEC[s].icon} ${RIV_SEC[s].name}</b><small>${D.desc} · ${fmt(D.cost)} · ممكن يعرف إنه إنت</small></button>`).join('')).join('')}</div>`;
+}
+function rivActs() {
+  return {
+    rvTab: k => { rivTab = k; rivPick = null; rerender(); },
+    rvChat: id => { rivChat = id; RIV().unread = 0; rerender(); },
+    rvBack: () => { rivChat = null; rerender(); },
+    rvPick: id => { rivPick = rivPick === id ? null : id; rerender(); },
+    rvDo: v => { const [id, k, s] = v.split('|'); rivMyDirty(rivOf(id), k, s); rivPick = null; rerender(); },
+    rvSue: id => { rivSue(rivOf(id)); rerender(); },
+    rvKeep: () => { rivPoachResolve(true); rerender(); },
+    rvLet: () => { rivPoachResolve(false); rerender(); },
+    rvBid: p => { const A = RIV().auction; if (A && rivAuctionBid(Math.round(A.top * (1 + p / 100) / 1000) * 1000)) toast('🔨 زايدت', 'good'); rerender(); },
+    rvSec: i => { RIV().sec = +i; save(); rerender(); },
+    rvIns: v => { RIV().ins = v === '1'; save(); rerender(); },
+  };
+}
+// ---- الشات معاهم (موبايل ووش لوش) ----
+const rivDraft = {};
+function rivChips(r) {
+  const out = [], R = RIV();
+  if (r.neg) out.push('موافق', 'لا');
+  if (r.truce <= state.day && r.rel.hate < 70) out.push('إيه رأيك نعمل هدنة؟');
+  const b = Object.entries(r.biz).find(([, x]) => x.p > 0); if (b) out.push(`تبيعلي فروعك في ${RIV_SEC[b[0]].name} بكام؟`);
+  if (r.lands.length) out.push(`تبيعلي بلوك ${r.lands[0]} بكام؟`);
+  if (R.ev.some(e => e.rid === r.id && !e.used)) out.push('أنا عارف إنك اللي ورا اللي حصل، ومعايا دليل');
+  out.push(r.rel.trust > 35 ? 'عايز أشاركك في مشروع' : 'السوق عامل معاك إيه؟', 'هتندم على اللي بتعمله');
+  return [...new Set(out)].slice(0, 4);
+}
+function rivChatHTML(r, live) {
+  const d = rivDef(r.id), T = RIV().msgs[r.id] || [];
+  return `${live ? '' : `<div class="ph-head"><button type="button" class="ph-back" data-act="rvBack">› المنافسين</button><b>${d.icon} ${d.short}</b></div>`}
+    <div class="chat" id="rivBox" data-rid="${r.id}">${T.slice(-30).map(chatBub).join('')}</div>
+    <div class="chips" id="rivChips">${rivChips(r).map(c => `<button type="button" class="chip" data-rchip="${escH(c)}">${escH(c)}</button>`).join('')}</div>
+    <form class="chatbar" id="rivForm"><input id="rivIn" type="text" maxlength="300" autocomplete="off" enterkeyhint="send" placeholder="اكتب لـ${escH(d.short)}… (هدنة، شراكة، بلوك 5 بكام، تهديد…)"><button class="btn pri" type="submit">➤</button></form>`;
+}
+function rivWire(body, r) {
+  const box = () => document.getElementById('rivBox'); const sc = () => { const b = box(); if (b) b.scrollTop = b.scrollHeight; }; sc();
+  const f = body.querySelector('#rivForm'); if (!f) return;
+  const inp = f.querySelector('input'); inp.value = rivDraft[r.id] || ''; inp.addEventListener('input', () => { rivDraft[r.id] = inp.value; });
+  const send = txt => {
+    txt = String(txt || '').replace(/\s+/g, ' ').trim().slice(0, 300); if (!txt) return;
+    const R = RIV(), T = R.msgs[r.id] || (R.msgs[r.id] = []);
+    T.push({ from: 'me', text: txt, t: `ي${state.day} ${clockText()}` });
+    const b = box(); if (b) { b.insertAdjacentHTML('beforeend', chatBub(T[T.length - 1]) + TYPING_HTML); sc(); }
+    const lines = rivHear(r, txt); for (const k of ['hate', 'respect', 'trust', 'fear']) r.rel[k] = clamp(r.rel[k], 0, 100);
+    setTimeout(() => {
+      const b2 = box(); if (b2) { const t = b2.querySelector('.typing'); if (t) t.remove(); }
+      for (const s of lines) { T.push({ from: 'her', text: s, t: `ي${state.day} ${clockText()}` }); if (b2) b2.insertAdjacentHTML('beforeend', chatBub(T[T.length - 1])); }
+      if (T.length > 40) T.splice(0, T.length - 40);
+      sc(); const ch = document.getElementById('rivChips'); if (ch) ch.innerHTML = rivChips(r).map(c => `<button type="button" class="chip" data-rchip="${escH(c)}">${escH(c)}</button>`).join('');
+      save(); updateHUD();
+    }, 700 + Math.min(1400, lines.join(' ').length * 20));
+  };
+  f.addEventListener('submit', e => { e.preventDefault(); const v = inp.value; inp.value = ''; rivDraft[r.id] = ''; send(v); });
+  const ch = body.querySelector('#rivChips'); if (ch) ch.addEventListener('click', e => { const c = e.target.closest('[data-rchip]'); if (c) send(c.dataset.rchip); });
+  if (!isTouch) inp.focus({ preventScroll: true });
+}
+// وش لوش في الشارع
+function rivPanel(id, pre) {
+  const r = rivOf(id); if (!r) return; const d = rivDef(id);
+  openPanel(`${d.icon} ${d.name}`, d.title, b => {
+    b.innerHTML = `<div class="two"><div class="stat"><small>ثروته</small><b>${fmt(rivWorth(r))}</b><small>${r.truce > state.day ? '🕊️ في هدنة معاك' : r.rel.hate > 60 ? '😡 بيكرهك' : r.rel.respect > 60 ? '🎩 بيحترمك' : 'منافس'}</small></div><div class="stat"><small>علاقتكم</small><small>😡 ${rivBar(r.rel.hate, '#c0392b')}</small><small>🎩 ${rivBar(r.rel.respect, '#f4b81c')}</small><small>🤝 ${rivBar(r.rel.trust, '#27ae60')}</small></div></div>` + rivChatHTML(r, true);
+    rivWire(b, r);
+    if (pre) { const i = b.querySelector('#rivIn'); if (i) i.value = pre; pre = null; }
+  });
+}
+// ---- في الشارع: بيقفوا قدام شغلهم بالنهار ----
+const rivVis = {};
+function rivAnimate(dt) {
+  if (!state.riv || !scene) return;
+  const h = hourNow(), p = state.player;
+  for (const r of state.riv.list) {
+    const d = rivDef(r.id), show = r.alive && h >= 10 && h < 20 && !state.inside && !inChina(), o = rivVis[r.id];
+    if (!show) { if (o) { scene.remove(o.m); delete rivVis[r.id]; } continue; }
+    if (!o) { const m = makePerson(d.look); m.add(nameTag(`${d.icon} ${d.short}`, 2.05)); m.position.set(d.spot.x, 0, d.spot.z); scene.add(m); rivVis[r.id] = { m }; continue; }
+    const dd = Math.hypot(p.x - d.spot.x, p.z - d.spot.z);
+    o.m.rotation.y = dd < 7 ? Math.atan2(p.x - d.spot.x, p.z - d.spot.z) : 0;
+  }
+}
+function nearRival() {
+  if (!state.riv || state.inside || inChina()) return null;
+  const p = state.player;
+  for (const r of state.riv.list) { if (!rivVis[r.id]) continue; const d = rivDef(r.id); if (Math.hypot(p.x - d.spot.x, p.z - d.spot.z) < 1.9) return { type: 'rival', id: 'rv' + r.id, rid: r.id, verb: `تكلّم ${d.short}`, act: 'كلّمه' }; }
+  return null;
+}
+
 function netWorth() {
   let w = state.money + (state.bank ? state.bank.balance : 0) + (state.cny || 0) * fxSell();
   if (isOwned(BIGSHOP())) w += BIGSHOP().price; if (state.owned.market) w += MK.price;
@@ -11762,7 +12417,7 @@ function hrLog(x) { const H = hr(); H.log.unshift({ t: `يوم ${state.day} · $
 const roleCount = (r, sh) => state.staff.filter(e => e.role === r && (!sh || shiftOf(e) === sh)).length;
 // الخطة: كام موظف محتاجين من كل نوع ولية
 function hrPlan(sh = curShift()) {
-  const rm = repMult() * drawMult() * season().demand * shiftDemand(sh) * cityMult(), st = shopStats(), cap = shopCap();
+  const rm = repMult() * drawMult() * season().demand * shiftDemand(sh) * cityMult() * rivMult('shop'), st = shopStats(), cap = shopCap();
   const extra = sh === curShift() ? subRateSec() : 0;
   const crowd = n => 40 * ((1 + 0.5 * n) * rm / 26 + extra);   // متوسط عدد الزباين جوه المحل في نفس الوقت
   const per = st.n >= 10 ? Math.max(0, (st.rev - st.cost) / st.n) : 12;   // ربح الزبون الواحد
@@ -11986,6 +12641,7 @@ function currentTarget() {
   if (nearDrop()) return DROP;
   if (nearPickup()) return PICKUP;
   { const gt = nearGirl(); if (gt) return gt; }
+  { const rt = nearRival(); if (rt) return rt; }
   { const st = nearShowroom() || nearMatBay() || nearHomeDoor() || nearSite(); if (st) return st; }
   const pl = nearPlace(); if (pl) return pl;
   if (!state.riding && nearRanda()) return RANDA;
@@ -12021,6 +12677,7 @@ function interact() {
   if (t.type && t.type.startsWith('mk')) return t.type === 'mkseller' ? mkSellerPanel(t.seller) : mkAct(t);
   if (t.type === 'showroom') return showroomPanel();
   if (t.type === 'girl') return girlPanel(t.gid);
+  if (t.type === 'rival') return rivPanel(t.rid);
   if (t.type === 'venue') { const v = VENUE_SHOPS[t.n]; return v === 'gifts' ? giftShopPanel(9) : v === 'jewel' ? giftShopPanel(10) : venueSoloPanel(v); }
   if (t.type === 'lhome') { if (state.riding) toggleRide(); const q = state.player; state.homeFrom = { x: q.x, z: q.z, yaw: q.yaw + Math.PI }; return enterHome(); }
   if (t.type === 'hwife') return wifePanel();
