@@ -11,7 +11,7 @@ def rep(a, b):
 rep('<link rel="preconnect" href="https://fonts.googleapis.com">\n', '')
 rep('<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n', '')
 rep('<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lalezar&family=Readex+Pro:wght@400;600;700&display=swap">', '<link rel="stylesheet" href="fonts/fonts.css">')
-rep('<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>', '<script src="three.min.js"></script>\n<script src="human/SkeletonUtils.js"></script>\n<script src="human/hf.min.js"></script>\n<script>window.__HUMAN_BASE = \'human\';</script>')   # الناس الحقيقيين: في الأبلكيشن بس
+rep('<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>', '<script src="three.min.js"></script>\n<script src="human/SkeletonUtils.js"></script>\n<script src="human/hf.min.js"></script>\n<script>window.__HUMAN_BASE = \'human\'; window.__APP = true;</script>')   # الناس الحقيقيين: في الأبلكيشن بس
 head = (root / 'tools' / 'head.html').read_text(encoding='utf-8')
 tail = (root / 'tools' / 'tail.html').read_text(encoding='utf-8')
 (root / 'index.html').write_text(head + src + tail, encoding='utf-8')
