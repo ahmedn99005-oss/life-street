@@ -617,7 +617,7 @@ const RATES = {
 const NEED_WARN = { food: 'إنت جعان! كُل حاجة', drink: 'إنت عطشان! اشرب حاجة', energy: 'إنت تعبان، محتاج تنام' };
 
 // آخر اليوم (لسه بنفس رقم اليوم) وبداية اليوم الجديد
-function endOfDay() { staffNewDay(); mgrPay(); collectRent(); mkEndDay(); tradeEndDay(); loanNewDay(); conEndDay(); cnsEndDay(); lifeDay(); rivDay(); closeDay(); }
+function endOfDay() { staffNewDay(); mgrPay(); collectRent(); mkEndDay(); tradeEndDay(); loanNewDay(); conEndDay(); cnsEndDay(); lifeDay(); rivDay(); milDay(); closeDay(); }
 function startOfDay() { applyInterest(); priceNewDay(); seasonNewDay(); fxNewDay(); book(); conStartDay(); }
 // الوقت اللي بيعدّي مرة واحدة (نوم، طبخ، جيم...) المحل بيكمّل فيه شغل: بنحسبه حساب بدل ما يقف
 let liveTick = false;
@@ -809,7 +809,7 @@ function initThree() {
   }
   buildRanda();
   buildBankInterior(); buildHomeInterior(); buildSeller(); syncVehicles(); buildDelivery(); buildMall(); buildWholesale(); buildMkSellers(); buildTransport(); buildAdVisual(); syncStaff();
-  buildCitySign(); buildCapital(); buildShowroom(); buildMatTraders(); conRefreshAll(); if (state.cns) cnsBuild3D(); buildLifePlaces(); lifeHomeRefresh();
+  buildCitySign(); buildCapital(); buildMilBase(); buildShowroom(); buildMatTraders(); conRefreshAll(); if (state.cns) cnsBuild3D(); buildLifePlaces(); lifeHomeRefresh();
   if (state.city === 'china') buildChina();
   if (state.inside && state.inside.startsWith('cn:')) { buildCnInteriors(); if (cn().tower) setLbl(cnIn.lobbyLbl, TOWERS[cn().tower].name, '#2c3a47', '#f4b81c', 60); }
   applySettings();
@@ -1232,7 +1232,7 @@ function makePerson(o) {
   body.scale.set(ws, hs, ws);
   if (o.kid) { const k = o.kid; body.scale.set(k * 0.95, k, k * 0.95); head.scale.setScalar(1 + (1 - k) * 0.6); head.position.y = 1.56 - (1 - k) * 0.05; }
   g.userData = { lL, lR, aL, aR, head };
-  rpRegister(g, { fem, hijab, dress, shirt, pants, scarfC: o.scarfC, hair, kid: o.kid || 0, hs, old: !fem && hair === '#888' }, false);
+  if (!o.noReal) rpRegister(g, { fem, hijab, dress, shirt, pants, scarfC: o.scarfC, hair, kid: o.kid || 0, hs, old: !fem && hair === '#888' }, false);
   return g;
 }
 // ================= ناس حقيقيين (في نسخة الأبلكيشن بس) =================
@@ -1611,7 +1611,7 @@ function updateSky() {
   skyTmp.copy(SKY_DAY).lerp(SKY_NIGHT, f).lerp(SKY_SET, dusk);
   skyTop.copy(SKY_TOP_DAY).lerp(SKY_TOP_NIGHT, f).lerp(SKY_TOP_SET, dusk * 0.8);
   scene.background.copy(skyTmp); scene.fog.color.copy(skyTmp);
-  { const w = inWest(); scene.fog.near = w ? 70 : 35; scene.fog.far = w ? 240 : 120; }   // الصحرا مفتوحة وبتشوف أبعد
+  { const w = inWest() || inEast(); scene.fog.near = w ? 70 : 35; scene.fog.far = w ? 240 : 120; }   // الصحرا مفتوحة وبتشوف أبعد
   hemi.intensity = 0.78 - 0.58 * f;
   if (inMall() || inBigShop() || inWarehouse() || inMarket() || inConMall()) hemi.intensity = Math.max(hemi.intensity, 0.85);   // المول منوّر بالليل
   sun.intensity = 0.95 * (1 - f) + 0.12;
@@ -1736,12 +1736,14 @@ function collide(p, nx, nz) {
     [nx, nz] = cnCollide(nx, nz);
   } else if (nx < BOUNDS.x0 && (p.x < BOUNDS.x0 || (p.z >= HWY.z0 && p.z <= HWY.z1))) {
     [nx, nz, hit] = westCollide(p, nx, nz);   // الطريق الصحراوي والعاصمة الجديدة
+  } else if (nx > BOUNDS.x1 && (p.x > BOUNDS.x1 || (p.z >= HWY.z0 && p.z <= HWY.z1))) {
+    [nx, nz, hit] = eastCollide(p, nx, nz);   // طريق القاعدة والأرض العسكرية
   } else {
     const bx = clamp(nx, BOUNDS.x0, BOUNDS.x1), bz = Math.min(nz, BOUNDS.z1);
     if (bx !== nx || bz !== nz) hit = true;
     nx = bx; nz = bz;
   }
-  if (!state.inside && !inChina() && nx >= BOUNDS.x0) {        // حيطان المول والمحل الكبير
+  if (!state.inside && !inChina() && nx >= BOUNDS.x0 && nx <= BOUNDS.x1 + 0.5) {        // حيطان المول والمحل الكبير
     const pr = 0.35 + (state.riding && isFleet(state.riding) ? Math.max(0, fleetDims(state.vehicles[state.riding].model).W / 2 - 0.3) : 0);   // العربية أعرض من الماشي
     for (const w of WALLS.concat(SHOP_WALLS, officeDoorWall(), whDoorWall())) {
       if (w.off) continue;
@@ -1777,6 +1779,7 @@ function collide(p, nx, nz) {
   return [nx, nz, hit];
 }
 function movePlayer(dt) {
+  if (milRiding()) return milMove(dt);
   const p = state.player;
   const L = keys.has('a') || keys.has('ش'), Rt = keys.has('d') || keys.has('ي');
   let fwd = 0;
@@ -1840,6 +1843,7 @@ function updateWorld(dt) {
   cnsAnimate(dt);
   lifeAnimate(dt);
   rivAnimate(dt);
+  milAnimate(dt);
   updateVehicles(dt);
   updateDelivery(dt);
   updateStaff(dt);
@@ -1877,8 +1881,9 @@ function updateWorld(dt) {
 function updateCamera() {
   const p = state.player;
   const bob = player.moving && !state.riding ? Math.sin(player.phase * 2) * 0.045 : 0;
+  if (milRiding()) { const { U, u } = milRideDef(), dz = MIL_CAM[u.t] || 0; camera.position.set(p.x + Math.sin(p.yaw) * dz, state.mil.ride.alt + U.eye, p.z + Math.cos(p.yaw) * dz); camera.rotation.y = p.yaw; camera.rotation.x = player.pitch; camera.rotation.z = (player.lean || 0) * 0.6; return; }
   const eye = state.riding ? vdef(state.riding).eye : 1.65;
-  camera.position.set(p.x, eye + bob + (state.inside || p.x < STREET.x0 ? 0 : groundY(p.z)), p.z);
+  camera.position.set(p.x, eye + bob + (state.inside || p.x < STREET.x0 || p.x > STREET.x1 ? 0 : groundY(p.z)), p.z);
   camera.rotation.y = p.yaw; camera.rotation.x = player.pitch;
   camera.rotation.z = state.riding ? (player.lean || 0) * 0.6 : 0;
 }
@@ -1896,6 +1901,7 @@ function drawMini() {
   if (inChina()) { drawChinaMini(W, H); return;
   }
   if (inWest()) { drawWestMini(W, H); return; }
+  if (inEast()) { drawEastMini(W, H); return; }
   mctx.fillStyle = '#a9a092'; mctx.fillRect(0, Zp(0), W, Zp(Z.swBot) - Zp(0));
   mctx.fillStyle = '#3a3e45'; mctx.fillRect(0, Zp(Z.swTop), W, Zp(Z.roadEnd) - Zp(Z.swTop));
   mctx.fillStyle = '#5b8a4a'; mctx.fillRect(0, Zp(Z.swBot), W, H);
@@ -1989,7 +1995,7 @@ function flashMoney() { const c = $('#hMoneyCard'); c.classList.remove('flash');
 
 function updateHUD() {
   $('#hTime').textContent = clockText();
-  $('#hDay').textContent = `${inChina() ? '🇨🇳 الصين' : inCapital() ? (capBlockAt() ? `🏜️ العاصمة · بلوك ${capBlockAt().n}${state.con && state.con.lands[capBlockAt().n] ? ' (ملكك)' : ''}` : '🏜️ العاصمة الجديدة') : inWest() ? '🛣️ طريق العاصمة' : 'وايلد سيتي'} · اليوم ${state.day} · ${season().icon}`;
+  $('#hDay').textContent = `${inChina() ? '🇨🇳 الصين' : inCapital() ? (capBlockAt() ? `🏜️ العاصمة · بلوك ${capBlockAt().n}${state.con && state.con.lands[capBlockAt().n] ? ' (ملكك)' : ''}` : '🏜️ العاصمة الجديدة') : inWest() ? '🛣️ طريق العاصمة' : inMil() ? '🎖️ الأرض العسكرية' : inEast() ? '🛣️ طريق القاعدة' : 'وايلد سيتي'} · اليوم ${state.day} · ${season().icon}`;
   $('#hMoney').textContent = inChina() ? fmtY(state.cny || 0) : fmt(state.money);
   { const n = lifeUnread(), bp = $('#bPhone'); if (bp) bp.textContent = n ? `📱 الموبايل (${n})` : '📱 الموبايل'; }
   for (const [id, k] of [['nFood', 'food'], ['nDrink', 'drink'], ['nEnergy', 'energy'], ['nHealth', 'health']]) {
@@ -2306,7 +2312,7 @@ function applySettings() {
   resize();
   rpKick();
 }
-const GAME_VER = 85;   // رقم النسخة: بيظهر في الإعدادات وبيقولك لما اللعبة تتحدّث
+const GAME_VER = 86;   // رقم النسخة: بيظهر في الإعدادات وبيقولك لما اللعبة تتحدّث
 function openSettings() {
   if (panelOpen()) return;
   openPanel('الإعدادات', `ظبط اللعبة على جهازك · النسخة ${GAME_VER}`, body => {
@@ -2854,7 +2860,7 @@ function updateVehicles(dt) {
     const v = state.vehicles[k], m = vehMeshes[k];
     if (!v) continue;
     if (state.riding === k) { v.x = state.player.x; v.z = state.player.z; v.yaw = state.player.yaw; }
-    m.position.set(v.x, v.x < STREET.x0 ? 0 : groundY(v.z), v.z);
+    m.position.set(v.x, v.x < STREET.x0 || v.x > STREET.x1 ? 0 : groundY(v.z), v.z);
     m.rotation.y = v.yaw;
     m.rotation.z = state.riding === k ? (player.lean || 0) : 0;
     if (state.riding === k) for (const w of m.userData.wheels) w.rotation.z -= rideV * dt / m.userData.r;
@@ -2867,6 +2873,8 @@ const nearVehicle = () => {
 };
 function toggleRide() {
   if (panelOpen() || state.inside) return;
+  if (milRiding()) { milExit(); return; }
+  if (!state.riding) { const mu = nearMilUnit(); if (mu) { milEnter(mu); return; } }
   if (state.carry) { toast('حط الكرتونة الأول جنب الكشك', 'bad'); return; }
   if (!state.riding && handsN()) {
     // الكراتين اللي في إيدك تتحط في صندوق العجلة لو فيه مكان
@@ -3736,7 +3744,10 @@ function openPhone() {
         <button type="button" class="ph-app" data-act="app:central"><span>🏭</span>المخزن المركزي</button>
         <button type="button" class="ph-app" data-act="app:ws"><span>🤝</span>عملاء الجملة${state.wholesale && wsOpen().length ? ` (${wsOpen().length})` : ''}</button>
         <button type="button" class="ph-app" data-act="app:rivals"><span>🥊</span>المنافسين${state.riv && state.riv.unread ? ` (${state.riv.unread})` : ''}</button>
+        <button type="button" class="ph-app" data-act="app:army"><span>🎖️</span>الجيش</button>
       </div>`;
+    } else if (phoneApp === 'army') {
+      screen = `<div class="ph-head"><button type="button" class="ph-back" data-act="home">› رجوع</button><b>🎖️ الجيش</b></div><div class="ph-list ph-rep">${milHTML()}</div>`;
     } else if (phoneApp === 'rivals') {
       screen = rivChat ? `<div class="ph-list ph-rep">${rivAppHTML()}</div>` : `<div class="ph-head"><button type="button" class="ph-back" data-act="home">› رجوع</button><b>🥊 المنافسين</b></div><div class="ph-list ph-rep">${rivAppHTML()}</div>`;
     } else if (phoneApp === 'news') {
@@ -3802,6 +3813,7 @@ function openPhone() {
       ...(phoneApp === 'msgs' ? msgActs() : {}),
       ...(phoneApp === 'family' ? famActs() : {}),
       ...(phoneApp === 'rivals' ? rivActs() : {}),
+      ...(phoneApp === 'army' ? milActs() : {}),
       rep: i => { closePanel(); showReport(state.reports[+i]); },
       list: () => { phoneSeller = null; rerender(); },
     });
@@ -11939,6 +11951,490 @@ function nearRival() {
   return null;
 }
 
+// ================= الأرض العسكرية: شرق المدينة (الناحية المقابلة للعاصمة) =================
+// تشتري الأرض، تبني ثكنات وجراجات ومهابط وممر طيارات، تجنّد وتسلّح وتدرّب، تشتري مدرعات ودبابات وهليكوبتر وطيارات،
+// وتسوق الدبابة وتطيّر الطيارة بنفسك. «القوة العسكرية» بتتحسب (عدد، سلاح، تدريب، معنويات، طواقم) عشان الحروب بعدين.
+const MIL = { x0: 300, x1: 620, z0: -150, z1: 170, price: 40000000 };
+const inEast = (x = state.player.x) => !state.inside && state.city !== 'china' && x > BOUNDS.x1 + 0.001;
+const inMil = (x = state.player.x, z = state.player.z) => inEast(x) && x >= MIL.x0 && z >= MIL.z0 && z <= MIL.z1;
+const MIL_TROOPS = {
+  conscript: { name: 'مجند', icon: '🪖', hire: 5000, day: 150, pow: 1, combat: true },
+  soldier: { name: 'جندي محترف', icon: '💂', hire: 20000, day: 400, pow: 2.2, combat: true },
+  sniper: { name: 'قناص', icon: '🎯', hire: 50000, day: 900, pow: 4, combat: true, need: 'sfc' },
+  sf: { name: 'قوات خاصة (صاعقة)', icon: '🥷', hire: 80000, day: 1200, pow: 6, combat: true, need: 'sfc' },
+  crew: { name: 'طاقم مدرعات', icon: '👷', hire: 30000, day: 600, pow: 0.5 },
+  pilot: { name: 'طيار', icon: '👨‍✈️', hire: 300000, day: 3000, pow: 0.5 },
+};
+const MIL_KITS = {
+  rifle: { name: 'بندقية آلية', icon: '🔫', price: 25000, desc: 'كل جندي محتاج بندقية، من غيرها قوته ضعيفة' },
+  armor: { name: 'خوذة ودرع واقي', icon: '🦺', price: 12000, desc: 'بيزوّد قوة الجندي 20%' },
+  nvg: { name: 'منظار رؤية ليلية', icon: '🥽', price: 30000, desc: 'بيزوّد قوة الجندي 15%' },
+  ammo: { name: 'صندوق ذخيرة', icon: '📦', price: 5000, desc: 'التدريب بيستهلك صندوق لكل 20 جندي' },
+  missile: { name: 'صاروخ', icon: '🚀', price: 400000, desc: 'الراجمات والدفاع الجوي والطيارات الهجومية محتاجاه' },
+};
+// cat: ground (تسوقها) · heli (تطيّرها عمودي) · jet (محتاجة ممر) · drone
+const MIL_UNITS = {
+  jeep: { cat: 'ground', name: 'جيب عسكري', icon: '🚙', price: 1200000, day: 1500, pow: 8, crew: 1, speed: 28, eye: 1.7, home: 'garage' },
+  apc: { cat: 'ground', name: 'مدرعة نقل جنود', icon: '🛡️', price: 9000000, day: 6000, pow: 35, crew: 2, speed: 22, eye: 2.4, home: 'garage' },
+  tank_old: { cat: 'ground', name: 'دبابة (جيل قديم)', icon: '🪖', price: 25000000, day: 12000, pow: 90, crew: 3, speed: 15, eye: 2.6, home: 'garage' },
+  tank: { cat: 'ground', name: 'دبابة حديثة', icon: '💥', price: 220000000, day: 60000, pow: 400, crew: 3, speed: 19, eye: 3.0, home: 'garage' },
+  spg: { cat: 'ground', name: 'مدفع ذاتي الحركة', icon: '🎇', price: 60000000, day: 20000, pow: 180, crew: 3, speed: 14, eye: 2.7, home: 'garage' },
+  mlrs: { cat: 'ground', name: 'راجمة صواريخ', icon: '🎆', price: 90000000, day: 25000, pow: 260, crew: 2, speed: 18, eye: 2.6, home: 'garage', mis: 1 },
+  aa: { cat: 'ground', name: 'منظومة دفاع جوي', icon: '📡', price: 150000000, day: 30000, pow: 250, crew: 3, speed: 14, eye: 2.6, home: 'garage', mis: 2, radar: true },
+  drone: { cat: 'drone', name: 'درون استطلاع', icon: '🛸', price: 2500000, day: 2000, pow: 15, crew: 0, home: 'pad' },
+  adrone: { cat: 'drone', name: 'درون هجومي', icon: '✈️', price: 12000000, day: 5000, pow: 60, crew: 0, home: 'pad', mis: 1 },
+  theli: { cat: 'heli', name: 'هليكوبتر نقل', icon: '🚁', price: 120000000, day: 40000, pow: 120, pilots: 2, speed: 55, eye: 2.5, home: 'helipad' },
+  aheli: { cat: 'heli', name: 'هليكوبتر هجومية', icon: '🚁', price: 600000000, day: 120000, pow: 600, pilots: 2, speed: 65, eye: 2.8, home: 'helipad', mis: 2 },
+  jet_old: { cat: 'jet', name: 'طيارة مقاتلة (جيل قديم)', icon: '✈️', price: 350000000, day: 150000, pow: 700, pilots: 1, speed: 110, eye: 2.85, home: 'hangar', mis: 2 },
+  jet: { cat: 'jet', name: 'طيارة مقاتلة حديثة', icon: '🛩️', price: 2500000000, day: 600000, pow: 3000, pilots: 1, speed: 140, eye: 3.05, home: 'hangar', mis: 4 },
+  cargo: { cat: 'jet', name: 'طيارة نقل عسكري', icon: '🛫', price: 900000000, day: 200000, pow: 300, pilots: 2, speed: 90, eye: 4.2, home: 'hangar' },
+};
+// المنشآت: مكانها في القاعدة (r = مستطيل المبنى) وسعتها
+const MIL_FAC = {
+  barracks: { name: 'ثكنات', icon: '🏚️', price: 8000000, max: 6, cap: 150, desc: 'كل ثكنة بتساع 150 جندي', at: [[345, -48], [380, -48], [415, -48], [345, -83], [380, -83], [415, -83]], w: 30, d: 16 },
+  garage: { name: 'جراج مدرعات', icon: '🏭', price: 15000000, max: 4, cap: 10, desc: 'كل جراج بيساع 10 مركبات', at: [[470, -50], [515, -50], [470, -85], [515, -85]], w: 38, d: 18 },
+  range: { name: 'ميدان رماية', icon: '🎯', price: 6000000, max: 1, desc: 'التدريب بيبقى أقوى، والحد الأقصى للتدريب يعلى', at: [[445, 44]], w: 44, d: 36, open: true },
+  sfc: { name: 'مركز تدريب قوات خاصة', icon: '🥷', price: 20000000, max: 1, desc: 'لازم عشان القناصة والصاعقة، وبيعلّي حد التدريب', at: [[500, 44]], w: 30, d: 24 },
+  hospital: { name: 'مستشفى عسكري', icon: '🏥', price: 30000000, max: 1, desc: 'المعنويات بتعلى أسرع وبتقل أبطأ', at: [[548, 40]], w: 28, d: 22 },
+  radar: { name: 'رادار', icon: '📡', price: 40000000, max: 1, desc: 'الدفاع الجوي محتاجه، والطيران قوته بتزيد 10%', at: [[595, -30]], w: 14, d: 14 },
+  helipad: { name: 'مهبط هليكوبتر', icon: '🅷', price: 10000000, max: 4, cap: 2, desc: 'كل مهبط بيساع 2 هليكوبتر', at: [[455, 92], [487, 92], [519, 92], [551, 92]], w: 26, d: 18, open: true },
+  runway: { name: 'ممر طيارات', icon: '🛬', price: 60000000, max: 1, desc: 'لازم للطيارات المقاتلة وطيارات النقل', at: [[470, 142]], w: 280, d: 20, open: true },
+  hangar: { name: 'هانجر طيارات', icon: '🛖', price: 25000000, max: 4, cap: 2, desc: 'كل هانجر بيساع طيارتين (محتاج ممر)', at: [[352, 108], [386, 108], [420, 108], [586, 108]], w: 30, d: 16, need: 'runway' },
+  depot: { name: 'مخزن سلاح وذخيرة', icon: '🗄️', price: 12000000, max: 2, cap: 400, desc: 'المخزن الأساسي بيساع 150 قطعة، وكل مخزن 400 زيادة', at: [[560, -85], [590, -85]], w: 24, d: 16 },
+};
+const MIL_HQ = { x: 319, z: -15, w: 22, d: 18, door: { x: 319, z: -5.4 } };
+const MIL_CAM = { jeep: -0.3, apc: -1.6, tank_old: 0.4, tank: 0.6, spg: 0.8, mlrs: -2.6, aa: 0.6, theli: -3.4, aheli: -2.6, jet_old: -3.6, jet: -4.2, cargo: -10.4 };
+function MILS() {
+  if (!state.mil) state.mil = { owned: false, fac: {}, troops: {}, kits: {}, units: [], train: 10, morale: 70, unpaid: 0, log: [], seq: 0, ride: null, trainDay: 0, paradeDay: -99 };
+  return state.mil;
+}
+const milFac = k => (MILS().fac[k] || 0);
+const milCount = k => (MILS().troops[k] || 0);
+const milLog = x => { const S = MILS(); S.log.unshift({ d: state.day, t: clockText(), x }); if (S.log.length > 30) S.log.length = 30; };
+const milCombat = () => Object.entries(MIL_TROOPS).filter(([, T]) => T.combat).reduce((a, [k]) => a + milCount(k), 0);
+const milSoldiers = () => Object.keys(MIL_TROOPS).reduce((a, k) => a + milCount(k), 0);
+const milCapTroops = () => milFac('barracks') * MIL_FAC.barracks.cap + 50;   // القيادة نفسها بتساع 50
+const milKitsTotal = () => Object.values(MILS().kits).reduce((a, v) => a + v, 0);
+const milCapKits = () => 150 + milFac('depot') * MIL_FAC.depot.cap;
+const milUnitsAt = home => MILS().units.filter(u => MIL_UNITS[u.t].home === home && u.hp > 0).length;
+const milCapUnits = home => home === 'garage' ? milFac('garage') * MIL_FAC.garage.cap : home === 'helipad' ? milFac('helipad') * MIL_FAC.helipad.cap : home === 'hangar' ? milFac('hangar') * MIL_FAC.hangar.cap : home === 'pad' ? 6 + milFac('helipad') * 4 : 0;
+const milCrewNeed = () => MILS().units.filter(u => u.hp > 0).reduce((a, u) => a + (MIL_UNITS[u.t].crew || 0), 0);
+const milPilotNeed = () => MILS().units.filter(u => u.hp > 0).reduce((a, u) => a + (MIL_UNITS[u.t].pilots || 0), 0);
+const milMisNeed = () => MILS().units.filter(u => u.hp > 0).reduce((a, u) => a + (MIL_UNITS[u.t].mis || 0) * 4, 0);
+const milDaily = () => Object.entries(MIL_TROOPS).reduce((a, [k, T]) => a + milCount(k) * T.day, 0) + MILS().units.filter(u => u.hp > 0).reduce((a, u) => a + MIL_UNITS[u.t].day, 0) + (MILS().owned ? 20000 : 0);
+// القوة العسكرية: العدد × السلاح × التدريب × المعنويات × الطواقم
+function milPower() {
+  const S = MILS(); if (!S.owned) return 0;
+  const combat = milCombat(), cov = k => combat ? Math.min(1, (S.kits[k] || 0) / combat) : 0;
+  const kitMult = 0.4 + 0.6 * cov('rifle') + 0.2 * cov('armor') + 0.15 * cov('nvg');
+  let troops = 0; for (const [k, T] of Object.entries(MIL_TROOPS)) troops += milCount(k) * T.pow * (T.combat ? kitMult : 1);
+  const crewR = Math.min(1, milCount('crew') / Math.max(1, milCrewNeed())), pilotR = Math.min(1, milCount('pilot') / Math.max(1, milPilotNeed())), misR = Math.min(1, (S.kits.missile || 0) / Math.max(1, milMisNeed()));
+  let units = 0;
+  for (const u of S.units) {
+    if (u.hp <= 0) continue; const U = MIL_UNITS[u.t];
+    let f = u.hp / 100;
+    if (U.crew) f *= 0.2 + 0.8 * crewR; if (U.pilots) f *= 0.1 + 0.9 * pilotR; if (U.mis) f *= 0.6 + 0.4 * misR;
+    if (U.radar && !milFac('radar')) f *= 0.6;
+    if ((U.cat === 'jet' || U.cat === 'heli') && milFac('radar')) f *= 1.1;
+    units += U.pow * f;
+  }
+  return Math.round((troops + units) * (0.6 + 0.4 * S.train / 100) * (0.6 + 0.4 * S.morale / 100));
+}
+const milTrainCap = () => 55 + (milFac('range') ? 25 : 0) + (milFac('sfc') ? 20 : 0);
+const milRank = p => p >= 20000 ? 'قوة عظمى' : p >= 6000 ? 'جيش إقليمي قوي' : p >= 1500 ? 'جيش متوسط' : p >= 300 ? 'قوة صغيرة' : p > 0 ? 'ميليشيا ناشئة' : 'مفيش جيش';
+// ---- الشرا والبنا ----
+function milBuyLand() {
+  const S = MILS(); if (S.owned) return;
+  if (!payWB(MIL.price, 'شراء الأرض العسكرية شرق المدينة')) { toast(`محتاج ${fmt(MIL.price)}`, 'bad'); return; }
+  S.owned = true; S.ownDay = state.day; milLog('🎖️ اشتريت الأرض العسكرية · القيادة وساحة العرض جاهزين');
+  toast('🎖️ مبروك! الأرض العسكرية بقت ملكك · ادخل مكتب القيادة', 'good', 6000); milRefresh3D(); save();
+}
+function milBuild(k) {
+  const S = MILS(), F = MIL_FAC[k];
+  if (milFac(k) >= F.max) { toast('وصلت للحد الأقصى من المنشأة دي', 'bad'); return; }
+  if (F.need && !milFac(F.need)) { toast(`محتاج ${MIL_FAC[F.need].name} الأول`, 'bad'); return; }
+  if (!payWB(F.price, `بناء ${F.name} في الأرض العسكرية`)) { toast('الفلوس مش مكفية', 'bad'); return; }
+  S.fac[k] = milFac(k) + 1; milLog(`🏗️ اتبنى ${F.name} (${S.fac[k]}/${F.max})`); toast(`🏗️ ${F.name} اتبنى`, 'good'); milRefresh3D(); save();
+}
+function milHire(k, n) {
+  const S = MILS(), T = MIL_TROOPS[k];
+  if (T.need && !milFac(T.need)) { toast(`محتاج ${MIL_FAC[T.need].name}`, 'bad'); return; }
+  if (milSoldiers() + n > milCapTroops()) { toast(`الثكنات مش هتساع · المكان ${milCapTroops()} فرد`, 'bad'); return; }
+  if (!payWB(T.hire * n, `تجنيد ${n} ${T.name}`)) { toast('الفلوس مش مكفية', 'bad'); return; }
+  S.troops[k] = milCount(k) + n; milLog(`${T.icon} انضم ${n} ${T.name}`); milRefresh3D(); save();
+}
+function milFire(k, n) { const S = MILS(); n = Math.min(n, milCount(k)); if (!n) return; S.troops[k] -= n; S.morale = clamp(S.morale - 2, 0, 100); milLog(`📤 سرّحت ${n} ${MIL_TROOPS[k].name}`); milRefresh3D(); save(); }
+function milBuyKit(k, n) {
+  const S = MILS(), K = MIL_KITS[k];
+  if (milKitsTotal() + n > milCapKits()) { toast(`المخازن مش هتساع · المكان ${milCapKits()} قطعة`, 'bad'); return; }
+  if (!payWB(K.price * n, `شراء ${n} ${K.name}`)) { toast('الفلوس مش مكفية', 'bad'); return; }
+  S.kits[k] = (S.kits[k] || 0) + n; save();
+}
+function milBuyUnit(t) {
+  const S = MILS(), U = MIL_UNITS[t];
+  if (U.home !== 'pad' && milUnitsAt(U.home) >= milCapUnits(U.home)) { toast(U.home === 'garage' ? 'محتاج جراج مدرعات (أو جراج زيادة)' : U.home === 'helipad' ? 'محتاج مهبط هليكوبتر' : 'محتاج هانجر طيارات (والهانجر محتاج ممر)', 'bad'); return; }
+  if (U.home === 'pad' && milUnitsAt('pad') >= milCapUnits('pad')) { toast('مفيش مكان للدرونز · ابني مهبط هليكوبتر', 'bad'); return; }
+  if (!payWB(U.price, `شراء ${U.name}`)) { toast('الفلوس مش مكفية', 'bad'); return; }
+  const u = { id: ++S.seq, t, hp: 100, x: null, z: null, yaw: 0 }; milPark(u); S.units.push(u);
+  milLog(`${U.icon} وصل ${U.name}`); toast(`${U.icon} ${U.name} وصل القاعدة`, 'good'); milRefresh3D(); save();
+}
+function milRepair(id) { const S = MILS(), u = S.units.find(x => x.id === id); if (!u || u.hp >= 100) return; const c = Math.round(MIL_UNITS[u.t].price * (100 - u.hp) / 100 * 0.35); if (!payWB(c, `صيانة ${MIL_UNITS[u.t].name}`)) { toast('الفلوس مش مكفية', 'bad'); return; } u.hp = 100; milRefresh3D(); save(); }
+function milSell(id) { const S = MILS(), u = S.units.find(x => x.id === id); if (!u || (S.ride && S.ride.id === id)) return; const v = Math.round(MIL_UNITS[u.t].price * 0.55 * u.hp / 100); Economy.add(v, `بيع ${MIL_UNITS[u.t].name} مستعمل`); S.units = S.units.filter(x => x !== u); milRefresh3D(); save(); }
+// مكان الركنة لكل نوع
+function milSpots(home) {
+  const out = [];
+  if (home === 'garage') for (let i = 0; i < 4; i++) { const [cx, cz] = MIL_FAC.garage.at[i]; for (let j = 0; j < 10; j++) out.push({ x: cx - 16 + (j % 5) * 8, z: cz + (j < 5 ? 15 : 22), yaw: Math.PI, fac: i }); }
+  if (home === 'helipad') for (let i = 0; i < 4; i++) { const [cx, cz] = MIL_FAC.helipad.at[i]; for (let j = 0; j < 2; j++) out.push({ x: cx - 6 + j * 12, z: cz, yaw: Math.PI, fac: i }); }
+  if (home === 'hangar') for (let i = 0; i < 4; i++) { const [cx, cz] = MIL_FAC.hangar.at[i]; for (let j = 0; j < 2; j++) out.push({ x: cx - 7 + j * 14, z: cz + 17, yaw: -Math.PI / 2, fac: i }); }
+  if (home === 'pad') for (let j = 0; j < 22; j++) out.push({ x: 440 + (j % 11) * 12, z: 72 + Math.floor(j / 11) * 6, yaw: Math.PI, fac: 0 });
+  return out;
+}
+function milPark(u) {
+  const S = MILS(), U = MIL_UNITS[u.t], used = new Set(S.units.filter(x => x !== u && MIL_UNITS[x.t].home === U.home && x.spot != null).map(x => x.spot));
+  const sp = milSpots(U.home); const i = sp.findIndex((s, k) => !used.has(k) && (U.home === 'pad' || s.fac < milFac(U.home)));
+  const s = sp[i >= 0 ? i : 0]; u.spot = i >= 0 ? i : 0; u.x = s.x; u.z = s.z; u.yaw = s.yaw; u.alt = 0;
+}
+// ---- كل يوم: مرتبات وصيانة ومعنويات ----
+function milDay() {
+  const S = state.mil; if (!S || !S.owned) return;
+  const cost = milDaily();
+  if (cost && payWB(cost, 'مرتبات وصيانة الجيش')) { S.unpaid = 0; S.morale = clamp(S.morale + 2 + (milFac('hospital') ? 1 : 0), 0, 100); }
+  else if (cost) {
+    S.unpaid++; S.morale = clamp(S.morale - (milFac('hospital') ? 10 : 15), 0, 100);
+    toast(`🎖️ مرتبات الجيش متدفعتش (${fmt(cost)}) · المعنويات نزلت`, 'bad', 6000); milLog(`⚠️ المرتبات متدفعتش · المعنويات ${Math.round(S.morale)}%`);
+    if (S.morale < 30) { let lost = 0; for (const k of Object.keys(S.troops)) { const n = Math.ceil(S.troops[k] * 0.1); S.troops[k] -= n; lost += n; } if (lost) { milLog(`🏃 ${lost} فرد هربوا من الجيش`); toast(`🏃 ${lost} فرد هربوا من الجيش عشان المرتبات`, 'bad', 6000); milRefresh3D(); } }
+  }
+  S.train = Math.max(0, S.train - 0.5);
+  // المنافسين بيعملوا حساب لجيشك
+  if (state.riv) { const p = milPower(); for (const r of state.riv.list) if (r.alive) r.rel.fear = clamp(Math.max(r.rel.fear, Math.min(70, p / 40)), 0, 100); }
+}
+function milTrain() {
+  const S = MILS();
+  if (S.trainDay === state.day) { toast('الجيش اتدرب النهارده خلاص', 'bad'); return; }
+  const combat = milCombat(), ammo = Math.ceil(combat / 20), fuel = S.units.filter(u => u.hp > 0).length * 2000;
+  if (!combat && !S.units.length) { toast('مفيش جيش يتدرب', 'bad'); return; }
+  if ((S.kits.ammo || 0) < ammo) { toast(`محتاج ${ammo} صندوق ذخيرة للتدريب`, 'bad'); return; }
+  if (fuel && !payWB(fuel, 'وقود تدريب المركبات والطيارات')) { toast('الفلوس مش مكفية للوقود', 'bad'); return; }
+  S.kits.ammo -= ammo; S.trainDay = state.day;
+  const gain = 2 + (milFac('range') ? 2 : 0) + (milFac('sfc') ? 1.5 : 0);
+  S.train = Math.min(milTrainCap(), S.train + gain); S.morale = clamp(S.morale + 1, 0, 100);
+  advanceTime(120); milLog(`🎯 تدريب · المستوى ${Math.round(S.train)}%`); toast(`🎯 الجيش اتدرب · مستوى التدريب ${Math.round(S.train)}%`, 'good'); save();
+}
+// عرض عسكري: الطيارات بتلف فوق المدينة، والمنافسين بيخافوا
+function milParade() {
+  const S = MILS();
+  if (state.day - S.paradeDay < 7) { toast(`العرض العسكري مرة كل أسبوع · الجاي يوم ${S.paradeDay + 7}`, 'bad'); return; }
+  if (!payWB(500000, 'عرض عسكري')) { toast('العرض محتاج 500,000 ج', 'bad'); return; }
+  S.paradeDay = state.day; const p = milPower();
+  if (state.riv) for (const r of state.riv.list) if (r.alive) { r.rel.fear = clamp(r.rel.fear + Math.min(30, p / 100), 0, 100); r.rel.respect = clamp(r.rel.respect + 5, 0, 100); }
+  if (typeof rivNews === 'function') rivNews(`🎖️ عرض عسكري لجيشك (قوة ${p.toLocaleString('en-US')}) · المنافسين بقوا يعملولك حساب`, 'good');
+  milLog('🎖️ عرض عسكري'); toast('🎖️ العرض العسكري بدأ · بص في السما!', 'good', 5000);
+  milVis.parade = 45; save();
+}
+
+// ---- شكل القاعدة والمعدات (3D) ----
+const CAMO = '#4b5320', CAMO2 = '#3d4a2a', DARKM = '#2f3a24', AIRG = '#7d8a96';
+// أشكال المعدات (القدام ناحية -z زي عربيات اللعبة)
+const MIL_BODY = {
+  jeep: () => { const P = [pB(1.9, 0.7, 4.2, 0, 0.85, 0, CAMO), pB(1.8, 0.7, 1.9, 0, 1.55, 0.3, CAMO2), pB(1.7, 0.5, 0.05, 0, 1.55, -0.68, GLASS)]; for (const [x, z] of [[-0.9, -1.4], [0.9, -1.4], [-0.9, 1.4], [0.9, 1.4]]) P.push(pC(0.42, 0.35, x, 0.42, z, TIRE)); P.push(pC(0.42, 0.3, 0, 1.3, 2.25, TIRE, 'z')); return P; },
+  apc: () => { const P = [pB(2.6, 1.4, 6.6, 0, 1.25, 0, CAMO), pB(2.2, 0.5, 4.6, 0, 2.15, 0.4, CAMO2), pB(0.8, 0.4, 0.9, 0, 2.6, -0.6, DARKM), pC(0.07, 1.4, 0, 2.65, -1.6, '#222', 'z')]; for (let i = 0; i < 4; i++) for (const s of [-1, 1]) P.push(pC(0.55, 0.45, s * 1.25, 0.55, -2.4 + i * 1.6, TIRE)); return P; },
+  tank_old: () => { const P = [pB(3.0, 1.0, 6.4, 0, 0.95, 0, CAMO), pB(3.4, 0.9, 6.6, 0, 0.55, 0, '#22281a')]; P.push(pC(1.25, 0.9, 0, 1.9, 0.4, CAMO2, 'y', 18), pC(0.11, 4.2, 0, 1.95, -3.0, '#2a2f22', 'z'), pB(0.5, 0.3, 0.5, 0.5, 2.45, 0.6, DARKM)); return P; },
+  tank: () => { const P = [pB(3.5, 1.1, 7.6, 0, 1.0, 0, '#7a6f4f'), pB(3.8, 1.0, 7.8, 0, 0.55, 0, '#2a2a22'), pB(2.9, 0.9, 3.6, 0, 2.0, 0.6, '#6e6445'), pB(2.2, 0.3, 1.0, 0, 2.0, -1.5, '#6e6445')]; P.push(pC(0.13, 5.6, 0, 2.05, -4.3, '#3a3528', 'z'), pC(0.2, 0.5, 0, 2.05, -7.0, '#3a3528', 'z'), pB(0.6, 0.4, 0.6, -0.8, 2.65, 1.1, '#3a3528')); return P; },
+  spg: () => { const P = [pB(3.2, 1.0, 7.0, 0, 0.95, 0, CAMO), pB(3.5, 0.9, 7.2, 0, 0.55, 0, '#22281a'), pB(3.0, 1.6, 3.8, 0, 2.25, 1.2, CAMO2), pC(0.16, 6.5, 0, 2.6, -2.6, '#2a2f22', 'z')]; return P; },
+  mlrs: () => { const P = [pB(2.5, 1.2, 2.4, 0, 1.4, -2.6, CAMO2), pB(2.5, 0.5, 8, 0, 0.85, 0, '#2a2f22'), pB(2.4, 1.2, 4.4, 0, 2.2, 1.6, CAMO, -0.25)]; for (let i = 0; i < 4; i++) for (const s of [-1, 1]) P.push(pC(0.55, 0.4, s * 1.25, 0.55, -3 + i * 1.9, TIRE)); return P; },
+  aa: () => { const P = [pB(3.0, 1.1, 7.0, 0, 1.0, 0, CAMO), pB(3.3, 0.9, 7.2, 0, 0.55, 0, '#22281a'), pB(2.2, 1.0, 2.6, 0, 2.0, 0.8, CAMO2)]; for (const s of [-1, 1]) P.push(pB(0.7, 0.7, 3.2, s * 0.7, 2.9, 0.4, '#5a6648', -0.6)); P.push(pB(1.6, 1.0, 0.1, 0, 3.1, 2.2, '#9aa3a8')); return P; },
+  drone: () => [pB(0.5, 0.25, 2.8, 0, 0.9, 0, AIRG), pB(5.0, 0.06, 0.6, 0, 0.95, 0.1, AIRG), pB(1.6, 0.05, 0.4, 0, 1.0, 1.3, AIRG), pB(0.06, 0.6, 0.5, 0, 1.25, 1.3, AIRG), pC(0.04, 0.9, 0, 0.45, -0.2, '#222', 'y')],
+  adrone: () => [pB(0.7, 0.35, 4.0, 0, 1.0, 0, '#5c6670'), pB(7.0, 0.08, 0.8, 0, 1.05, 0.2, '#5c6670'), pB(2.2, 0.06, 0.5, 0, 1.1, 1.8, '#5c6670'), pB(0.08, 0.8, 0.6, 0, 1.4, 1.8, '#5c6670'), pB(0.15, 0.15, 1.0, -1.6, 0.85, 0, '#c0392b'), pB(0.15, 0.15, 1.0, 1.6, 0.85, 0, '#c0392b'), pC(0.05, 1.0, 0, 0.5, -0.2, '#222', 'y')],
+  theli: () => { const P = [pB(2.2, 2.0, 6.0, 0, 1.9, 0, CAMO), pB(1.9, 1.0, 1.4, 0, 2.2, -3.4, GLASS), pB(0.6, 0.6, 6.2, 0, 2.4, 5.4, CAMO2), pB(0.1, 1.6, 1.2, 0, 3.0, 8.2, CAMO2), pC(0.15, 0.6, 0, 3.15, 0, '#222', 'y')]; for (const s of [-1, 1]) P.push(pB(0.12, 0.12, 4.6, s * 1.1, 0.15, 0, '#222')); return P; },
+  aheli: () => { const P = [pB(1.2, 1.5, 5.4, 0, 1.8, 0, '#3e4a38'), pB(1.1, 0.9, 1.6, 0, 2.5, -2.4, GLASS), pB(0.5, 0.5, 6.0, 0, 2.2, 5.4, '#3e4a38'), pB(0.1, 1.4, 1.0, 0, 2.8, 8.2, '#3e4a38'), pB(4.0, 0.12, 0.8, 0, 1.6, 0.3, '#3e4a38'), pC(0.14, 0.5, 0, 2.8, 0, '#222', 'y'), pC(0.06, 1.6, 0, 1.0, -3.4, '#222', 'z')]; for (const s of [-1, 1]) P.push(pB(0.3, 0.3, 1.4, s * 1.8, 1.4, 0.3, '#2a2f22')); for (const s of [-1, 1]) P.push(pC(0.2, 0.1, s * 0.7, 0.3, 1.5, TIRE)); return P; },
+  jet_old: () => { const P = [pC(0.7, 12, 0, 1.8, 0, '#8a949c', 'z', 12), { g: (() => { const g = new THREE.ConeGeometry(0.7, 2.4, 12); g.rotateX(-Math.PI / 2); g.translate(0, 1.8, -7.2); return g; })(), c: '#8a949c' }, pB(9.0, 0.15, 3.2, 0, 1.7, 1.2, '#7d878f'), pB(3.6, 0.12, 1.4, 0, 1.9, 5.4, '#7d878f'), pB(0.15, 2.2, 1.8, 0, 3.0, 5.2, '#7d878f'), pB(0.8, 0.5, 1.6, 0, 2.5, -3.6, GLASS)]; for (const [x, z] of [[-1.4, 1.5], [1.4, 1.5], [0, -4.5]]) P.push(pC(0.06, 1.3, x, 0.9, z, '#333', 'y'), pC(0.28, 0.2, x, 0.3, z, TIRE)); return P; },
+  jet: () => { const P = [pB(1.6, 1.0, 14, 0, 1.9, 0, '#6f7a84'), { g: (() => { const g = new THREE.ConeGeometry(0.75, 3.0, 4); g.rotateX(-Math.PI / 2); g.rotateZ(Math.PI / 4); g.translate(0, 1.9, -8.4); return g; })(), c: '#6f7a84' }, pB(11, 0.14, 4.4, 0, 1.75, 1.6, '#66717a'), pB(4.4, 0.12, 1.6, 0, 1.9, 6.2, '#66717a')]; for (const s of [-1, 1]) P.push(pB(0.12, 2.2, 1.8, s * 0.9, 3.0, 5.6, '#66717a')); P.push(pB(0.9, 0.55, 2.2, 0, 2.65, -4.2, GLASS)); for (const [x, z] of [[-1.5, 1.8], [1.5, 1.8], [0, -5.0]]) P.push(pC(0.06, 1.4, x, 0.9, z, '#333', 'y'), pC(0.3, 0.22, x, 0.3, z, TIRE)); return P; },
+  cargo: () => { const P = [pC(1.9, 22, 0, 3.6, 0, '#7f8c7a', 'z', 14), pB(30, 0.3, 4.2, 0, 4.9, -1, '#768270'), pB(10, 0.25, 2.6, 0, 5.4, 10, '#768270'), pB(0.3, 5.0, 3.4, 0, 7.4, 9.8, '#768270'), pB(2.2, 1.0, 1.6, 0, 4.6, -10.6, GLASS)]; for (const s of [-1, 1]) for (const x of [5.5, 10]) P.push(pC(0.7, 2.8, s * x, 4.2, -1.2, '#4a5446', 'z')); for (const [x, z] of [[-2, 1], [2, 1], [0, -8]]) P.push(pC(0.5, 0.4, x, 0.5, z, TIRE)); return P; },
+};
+const milVis = { base: null, fac: [], units: {}, troops: [], built: false, key: '', parade: 0, rotors: [] };
+function milUnitMesh(t) {
+  const m = mergeGeos(MIL_BODY[t]()); m.castShadow = true;
+  if (MIL_UNITS[t].cat === 'heli') { const rot = new THREE.Mesh(new THREE.BoxGeometry(12, 0.06, 0.4), M('#1b1b1b')), rot2 = rot.clone(); rot2.rotation.y = Math.PI / 2; const g = new THREE.Group(); g.add(rot, rot2); g.position.set(0, t === 'theli' ? 3.5 : 3.1, 0); m.add(g); m.userData.rotor = g; }
+  return m;
+}
+const milSign = (w, h, lines, bg, fg, x, y, z, ry) => { const t = textPlane(w, h, Math.round(w * 120), Math.round(h * 120), label(bg, fg, lines)); t.rotation.y = ry; add(t, x, y, z, false, false); return t; };
+// الأرض والطريق والسور والبوابة (مرة واحدة)
+function buildMilBase() {
+  const sand = canvasTex(256, 256, (g, w, h) => { g.fillStyle = '#cfae74'; g.fillRect(0, 0, w, h); for (let i = 0; i < 2400; i++) { const r = Math.random(); g.fillStyle = r < .5 ? `rgba(255,240,205,${r * .22})` : `rgba(110,80,40,${(r - .5) * .16})`; g.fillRect(Math.random() * w, Math.random() * h, 2, 2); } }, [460 / 12, 380 / 12]);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(460, 380), new THREE.MeshLambertMaterial({ map: sand })); ground.rotation.x = -Math.PI / 2; add(ground, 230 + 230, -0.006, 10, false);
+  const flat = [];
+  flat.push({ w: MIL.x0 - 228, h: 0.02, d: 8, x: (228 + MIL.x0) / 2, y: 0.008, z: 9, color: '#3a3e45' });   // الطريق
+  for (let x = 240; x < MIL.x0; x += 20) for (const z of [4.4, 13.6]) flat.push({ w: 0.12, h: 0.8, d: 0.12, x, y: 0.4, z, color: (x / 20) % 2 ? '#f1ece0' : '#e74c3c' });
+  flat.push({ w: MIL.x1 - MIL.x0 - 10, h: 0.02, d: 10, x: (MIL.x0 + MIL.x1) / 2, y: 0.008, z: 9, color: '#3a3e45' });   // الشارع الرئيسي جوه
+  flat.push({ w: 10, h: 0.02, d: MIL.z1 - MIL.z0 - 20, x: 435, y: 0.008, z: (MIL.z0 + MIL.z1) / 2, color: '#4a4e55' });
+  // السور
+  const H = 3.2, C = '#a49a7c';
+  flat.push({ w: MIL.x1 - MIL.x0, h: H, d: 0.5, x: (MIL.x0 + MIL.x1) / 2, y: H / 2, z: MIL.z0, color: C }, { w: MIL.x1 - MIL.x0, h: H, d: 0.5, x: (MIL.x0 + MIL.x1) / 2, y: H / 2, z: MIL.z1, color: C }, { w: 0.5, h: H, d: MIL.z1 - MIL.z0, x: MIL.x1, y: H / 2, z: (MIL.z0 + MIL.z1) / 2, color: C });
+  flat.push({ w: 0.5, h: H, d: 2 - MIL.z0, x: MIL.x0, y: H / 2, z: (MIL.z0 + 2) / 2, color: C }, { w: 0.5, h: H, d: MIL.z1 - 16, x: MIL.x0, y: H / 2, z: (16 + MIL.z1) / 2, color: C });
+  for (let x = MIL.x0; x <= MIL.x1; x += 40) for (const z of [MIL.z0, MIL.z1]) flat.push({ w: 0.9, h: H + 0.6, d: 0.9, x, y: (H + 0.6) / 2, z, color: '#8c8268' });
+  // البوابة وكشك الحراسة
+  for (const z of [1.2, 16.8]) flat.push({ w: 1.6, h: 6.5, d: 1.6, x: MIL.x0, y: 3.25, z, color: '#6b6650' });
+  flat.push({ w: 1.4, h: 1.2, d: 17.2, x: MIL.x0, y: 6.4, z: 9, color: '#55513f' }, { w: 3, h: 2.6, d: 3, x: MIL.x0 + 3, y: 1.3, z: -1.2, color: '#6b6650' }, { w: 0.15, h: 0.15, d: 7, x: MIL.x0 + 1, y: 1.1, z: 5, color: '#e74c3c' });
+  const fm = mergeBoxes(flat); fm.receiveShadow = true; add(fm, 0, 0, 0, false);
+  milSign(10, 1.2, [['🎖️ الأرض العسكرية', 80, .55, '#f4b81c']], '#2f3a24', '#ffffff', MIL.x0 - 0.75, 6.4, 9, -Math.PI / 2);
+  milSign(4.2, 1.3, [['🎖️ الأرض العسكرية', 52, .38], ['ممنوع الاقتراب ⚠️', 36, .76, '#f4b81c']], '#2f3a24', '#ffffff', 232, 3.2, 3.6, -Math.PI / 2);
+  add(boxMesh(0.14, 3.2, 0.14, M('#555')), 232, 1.6, 3.6);
+  milVis.forSale = milSign(4.6, 2.2, [['أرض عسكرية للبيع', 54, .3], [`${(MIL.price / 1e6)} مليون ج`, 60, .62, '#f4b81c'], ['اسأل عند البوابة', 32, .88]], '#5b2c2c', '#ffffff', MIL.x0 - 4, 2.4, -1.5, -Math.PI / 2);
+  milVis.built = true; milRefresh3D();
+}
+// المنشآت والمعدات والعساكر (بتتحدّث لما تشتري)
+function milRefresh3D() {
+  if (!milVis.built || !scene) return;
+  const S = MILS();
+  if (milVis.forSale) milVis.forSale.visible = !S.owned;
+  const key = JSON.stringify([S.owned, S.fac]);
+  if (key !== milVis.key) {
+    milVis.key = key;
+    for (const m of milVis.fac) { scene.remove(m); if (m.geometry) m.geometry.dispose(); }
+    milVis.fac = [];
+    if (S.owned) {
+      const L = [];
+      const bld = (x, z, w, d, h, c, roof) => { L.push({ w, h, d, x, y: h / 2, z, color: c }, { w: w + 0.4, h: 0.3, d: d + 0.4, x, y: h + 0.15, z, color: roof || '#5a5a48' }); };
+      bld(MIL_HQ.x, MIL_HQ.z, MIL_HQ.w, MIL_HQ.d, 7, '#8c8268', '#4b5320');
+      L.push({ w: 3, h: 2.6, d: 0.2, x: MIL_HQ.door.x, y: 1.3, z: MIL_HQ.door.z - 0.1, color: '#2c2c22' });
+      L.push({ w: 60, h: 0.03, d: 40, x: 370, y: 0.02, z: 44, color: '#b7ad94' });   // ساحة العرض
+      for (const [k, F] of Object.entries(MIL_FAC)) for (let i = 0; i < milFac(k); i++) {
+        const [x, z] = F.at[i];
+        if (k === 'barracks') bld(x, z, F.w, F.d, 4, '#9c9073');
+        if (k === 'garage') { bld(x, z, F.w, F.d, 6, '#7d7a68', '#3e4a38'); for (let j = 0; j < 4; j++) L.push({ w: 7, h: 4.6, d: 0.15, x: x - 13.5 + j * 9, y: 2.3, z: z + F.d / 2 + 0.05, color: '#4a4a3c' }); L.push({ w: 42, h: 0.03, d: 16, x, y: 0.015, z: z + 18.5, color: '#55585e' }); }
+        if (k === 'range') { L.push({ w: F.w, h: 0.03, d: F.d, x, y: 0.02, z, color: '#a2946a' }); for (let j = 0; j < 6; j++) L.push({ w: 1.6, h: 2.2, d: 0.15, x: x - 17 + j * 7, y: 1.1, z: z + 15, color: j % 2 ? '#ecf0f1' : '#c0392b' }); for (let j = 0; j < 6; j++) L.push({ w: 3, h: 0.9, d: 1, x: x - 17 + j * 7, y: 0.45, z: z - 14, color: '#6b6650' }); }
+        if (k === 'sfc') { bld(x, z, F.w, F.d, 5, '#6e6a55'); L.push({ w: 6, h: 9, d: 6, x: x + 18, y: 4.5, z, color: '#55513f' }); }
+        if (k === 'hospital') { bld(x, z, F.w, F.d, 6, '#ecf0f1', '#bdc3c7'); L.push({ w: 4, h: 1.2, d: 0.2, x, y: 5, z: z + F.d / 2 + 0.15, color: '#c0392b' }, { w: 1.2, h: 4, d: 0.2, x, y: 5, z: z + F.d / 2 + 0.16, color: '#c0392b' }); }
+        if (k === 'radar') { L.push({ w: 2, h: 10, d: 2, x, y: 5, z, color: '#7f8c8d' }, { w: 8, h: 4, d: 0.4, x, y: 11, z, color: '#bdc3c7', ry: 0.4 }); }
+        if (k === 'helipad') { L.push({ w: F.w, h: 0.05, d: F.d, x, y: 0.03, z, color: '#5d6168' }); for (const dx of [-6, 6]) L.push({ w: 0.6, h: 0.06, d: 5, x: x + dx - 1.4, y: 0.06, z, color: '#f1ece0' }, { w: 0.6, h: 0.06, d: 5, x: x + dx + 1.4, y: 0.06, z, color: '#f1ece0' }, { w: 2.2, h: 0.06, d: 0.6, x: x + dx, y: 0.06, z, color: '#f1ece0' }); }
+        if (k === 'runway') { L.push({ w: F.w, h: 0.03, d: F.d, x, y: 0.025, z, color: '#2e3138' }); for (let j = 0; j < 14; j++) L.push({ w: 9, h: 0.04, d: 0.8, x: x - F.w / 2 + 12 + j * 19.5, y: 0.04, z, color: '#f1ece0' }); L.push({ w: 140, h: 0.03, d: 12, x: 400, y: 0.02, z: 125, color: '#3a3d44' }); }
+        if (k === 'hangar') { L.push({ w: F.w, h: 7, d: 0.4, x, y: 3.5, z: z - F.d / 2, color: '#8a8f94' }, { w: 0.4, h: 7, d: F.d, x: x - F.w / 2, y: 3.5, z, color: '#8a8f94' }, { w: 0.4, h: 7, d: F.d, x: x + F.w / 2, y: 3.5, z, color: '#8a8f94' }, { w: F.w + 1, h: 0.5, d: F.d + 1, x, y: 7.2, z, color: '#6b7075' }); }
+        if (k === 'depot') { bld(x, z, F.w, F.d, 4.5, '#6b6650'); for (let j = 0; j < 4; j++) L.push({ w: 1.6, h: 1.2, d: 1.2, x: x - 8 + j * 5, y: 0.6, z: z + F.d / 2 + 2, color: '#556b2f' }); }
+      }
+      const m = mergeBoxes(L); m.castShadow = true; m.receiveShadow = true; add(m, 0, 0, 0); milVis.fac.push(m);
+      milVis.fac.push(milSign(6, 1.2, [['🎖️ القيادة', 70, .55, '#f4b81c']], '#2f3a24', '#ffffff', MIL_HQ.door.x, 4.2, MIL_HQ.door.z + 0.05, 0));
+      for (const [k, F] of Object.entries(MIL_FAC)) for (let i = 0; i < milFac(k); i++) { const [x, z] = F.at[i]; if (F.open && k !== 'range') continue; milVis.fac.push(milSign(Math.min(8, F.w * 0.5), 1, [[`${F.icon} ${F.name}`, 60, .55, '#f4b81c']], '#2f3a24', '#ffffff', x, k === 'radar' ? 3 : 3.6, z + (F.d || 10) / 2 + 0.3, 0)); }
+    }
+  }
+  // المعدات
+  const live = new Set();
+  for (const u of S.units) {
+    if (u.hp <= 0) continue; live.add(u.id);
+    let o = milVis.units[u.id];
+    if (!o) { const m = milUnitMesh(u.t); scene.add(m); o = milVis.units[u.id] = { m, t: u.t }; }
+    if (!(S.ride && S.ride.id === u.id)) { o.m.position.set(u.x, u.alt || 0, u.z); o.m.rotation.set(0, u.yaw, 0); }
+  }
+  for (const id of Object.keys(milVis.units)) if (!live.has(+id)) { scene.remove(milVis.units[id].m); delete milVis.units[id]; }
+  // العساكر في ساحة العرض (لحد 30 بيتشافوا)
+  const want = S.owned ? Math.min(30, milCombat()) : 0;
+  while (milVis.troops.length > want) { const t = milVis.troops.pop(); scene.remove(t.m); }
+  while (milVis.troops.length < want) {
+    const i = milVis.troops.length, m = makePerson({ shirt: CAMO, pants: CAMO2, skin: pick(SKINS), hair: '#111', shoe: '#1b1b1b', style: 'short', noReal: true });
+    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.135, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), M(DARKM)); helmet.position.set(0, 0.16, 0); m.userData.head.add(helmet);
+    const gun = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 0.8), M('#1b1b1b')); gun.position.set(0, -0.3, 0.2); m.userData.aR.add(gun);
+    scene.add(m); milVis.troops.push({ m, i, ph: rand(0, 6) });
+  }
+}
+function milAnimate(dt) {
+  if (!milVis.built) return;
+  const S = state.mil; if (!S) return;
+  const near = inEast() || state.player.x > 150, t = performance.now() / 1000;
+  for (const tr of milVis.troops) {
+    tr.m.visible = near && !state.inside;
+    if (!tr.m.visible) continue;
+    const row = Math.floor(tr.i / 6), col = tr.i % 6, h = hourNow(), drill = h >= 7 && h < 17;
+    const lap = drill ? (t * 1.3) % 80 : 0, fwd = lap < 40 ? lap : 80 - lap, dir = lap < 40 ? 1 : -1;
+    tr.m.position.set(345 + (drill ? fwd : 12), 0, 30 + col * 1.6 + row * 2.4);
+    tr.m.rotation.y = drill ? (dir > 0 ? Math.PI / 2 : -Math.PI / 2) : Math.PI;
+    const u = tr.m.userData, sw = drill ? Math.sin(t * 5 + tr.i * 0.01) * 0.55 : 0; u.lL.rotation.x = sw; u.lR.rotation.x = -sw; u.aL.rotation.x = -sw * 0.5; u.aR.rotation.x = -0.6;
+  }
+  // المراوح بتلف للي طايرة وللي في العرض
+  for (const o of Object.values(milVis.units)) if (o.m.userData.rotor) { const flying = S.ride && milVis.units[S.ride.id] === o; o.m.userData.rotor.rotation.y += dt * (flying || milVis.parade > 0 ? 28 : 0.0); }
+  // العرض العسكري: الطيارات والهليكوبتر بيلفوا فوق المدينة
+  if (milVis.parade > 0) {
+    milVis.parade -= dt; let k = 0;
+    for (const u of S.units) { if (u.hp <= 0 || (S.ride && S.ride.id === u.id)) continue; const U = MIL_UNITS[u.t]; if (U.cat !== 'jet' && U.cat !== 'heli' && U.cat !== 'drone') continue; const o = milVis.units[u.id]; if (!o) continue; const a = t * (U.cat === 'jet' ? 0.35 : 0.2) + k * 0.5, R = 160 + k * 8; o.m.position.set(250 + Math.cos(a) * R, 70 + k * 6, 10 + Math.sin(a) * R); o.m.rotation.set(0, -a - Math.PI, U.cat === 'jet' ? 0.5 : 0.15); k++; }
+    if (milVis.parade <= 0) milRefresh3D();
+  }
+}
+
+// ---- الحركة شرق المدينة: الطريق، البوابة، والمباني ----
+function milRects() {
+  const S = state.mil, out = [];
+  if (!S || !S.owned) return out;
+  out.push({ x0: MIL_HQ.x - MIL_HQ.w / 2, x1: MIL_HQ.x + MIL_HQ.w / 2, z0: MIL_HQ.z - MIL_HQ.d / 2, z1: MIL_HQ.z + MIL_HQ.d / 2 });
+  for (const [k, F] of Object.entries(MIL_FAC)) { if (F.open) continue; for (let i = 0; i < milFac(k); i++) { const [x, z] = F.at[i]; if (k === 'hangar') { out.push({ x0: x - F.w / 2, x1: x + F.w / 2, z0: z - F.d / 2 - 0.3, z1: z - F.d / 2 + 0.3 }, { x0: x - F.w / 2 - 0.3, x1: x - F.w / 2 + 0.3, z0: z - F.d / 2, z1: z + F.d / 2 }, { x0: x + F.w / 2 - 0.3, x1: x + F.w / 2 + 0.3, z0: z - F.d / 2, z1: z + F.d / 2 }); continue; } out.push({ x0: x - F.w / 2, x1: x + F.w / 2, z0: z - F.d / 2, z1: z + F.d / 2 }); } }
+  return out;
+}
+function eastCollide(p, nx, nz, pr = 0.35) {
+  let hit = false;
+  if (nx < MIL.x0 || p.x < MIL.x0) {   // الطريق من آخر الشارع للبوابة
+    const z = clamp(nz, HWY.z0, HWY.z1); if (z !== nz) { nz = z; hit = true; }
+    if (nx >= MIL.x0 && !(nz > 2 + pr && nz < 16 - pr)) { nx = MIL.x0 - 0.01; hit = true; }   // البوابة بس
+    if (nx >= MIL.x0 && !(state.mil && state.mil.owned)) { nx = MIL.x0 - 0.5; hit = true; toastOnce('🚧 الأرض العسكرية مقفولة · اشتريها من الكشك اللي عند البوابة'); }
+  } else {
+    const x = clamp(nx, MIL.x0 + 0.5, MIL.x1 - 0.5), z = clamp(nz, MIL.z0 + 0.5, MIL.z1 - 0.5);
+    if (x !== nx || z !== nz) hit = true; nx = x; nz = z;
+  }
+  for (const w of milRects()) if (nx > w.x0 - pr && nx < w.x1 + pr && nz > w.z0 - pr && nz < w.z1 + pr) {
+    const pl = nx - (w.x0 - pr), prr = (w.x1 + pr) - nx, pf = nz - (w.z0 - pr), pb = (w.z1 + pr) - nz, m = Math.min(pl, prr, pf, pb);
+    if (m === pl) nx = w.x0 - pr; else if (m === prr) nx = w.x1 + pr; else if (m === pf) nz = w.z0 - pr; else nz = w.z1 + pr; hit = true;
+  }
+  // المعدات الراكنة
+  const S = state.mil;
+  if (S) for (const u of S.units) { if (u.hp <= 0 || (S.ride && S.ride.id === u.id) || (u.alt || 0) > 1) continue; const r = MIL_UNITS[u.t].cat === 'jet' ? 4.5 : MIL_UNITS[u.t].cat === 'drone' ? 1.2 : 2.6, dx = nx - u.x, dz = nz - u.z, d = Math.hypot(dx, dz); if (d < r + pr && d > 0) { nx = u.x + dx / d * (r + pr); nz = u.z + dz / d * (r + pr); hit = true; } }
+  return [nx, nz, hit];
+}
+let _toastOnceAt = 0; function toastOnce(t) { const n = performance.now(); if (n - _toastOnceAt > 4000) { _toastOnceAt = n; toast(t, 'bad'); } }
+// ---- تركب وتسوق / تطيّر ----
+function nearMilUnit() {
+  const S = state.mil; if (!S || S.ride || state.riding || state.inside) return null;
+  const p = state.player;
+  for (const u of S.units) { if (u.hp <= 0 || (u.alt || 0) > 0.5) continue; const U = MIL_UNITS[u.t]; if (U.cat === 'drone') continue; if (Math.hypot(p.x - u.x, p.z - u.z) < (U.cat === 'jet' ? 6 : U.cat === 'heli' ? 4.5 : 3.6)) return u; }
+  return null;
+}
+function milEnter(u) {
+  const S = MILS(), U = MIL_UNITS[u.t], p = state.player;
+  if ((U.crew && milCount('crew') < 1) || (U.pilots && milCount('pilot') < 1)) { /* انت بتسوق بنفسك، مش محتاج طاقم */ }
+  S.ride = { id: u.id, v: 0, alt: u.alt || 0, vy: 0 }; Object.assign(p, { x: u.x, z: u.z, yaw: u.yaw }); player.pitch = U.cat === 'ground' ? -0.15 : 0;
+  toast(U.cat === 'ground' ? `ركبت ال${U.name} · سوق زي العربية و F عشان تنزل` : U.cat === 'heli' ? `ركبت ال${U.name} · قدام = اتحرك، بص لفوق = اطلع، بص لتحت = انزل` : `ركبت ال${U.name} · زوّد السرعة على الممر لحد ما تطير وبص لفوق · انزل على الممر بس`, '', 6000);
+  save();
+}
+function milExit() {
+  const S = MILS(), R = S.ride, u = S.units.find(x => x.id === R.id), U = MIL_UNITS[u.t], p = state.player;
+  if (R.alt > 0.6 || Math.abs(R.v) > 4) { toast(U.cat === 'ground' ? 'وقّف الأول' : 'انزل على الأرض ووقّف الأول', 'bad'); return; }
+  u.x = p.x; u.z = p.z; u.yaw = p.yaw; u.alt = 0; S.ride = null;
+  const off = U.cat === 'jet' ? 6 : U.cat === 'heli' ? 4.5 : 2.8, [dx, dz] = collide(p, p.x + Math.cos(p.yaw) * off, p.z - Math.sin(p.yaw) * off); p.x = dx; p.z = dz;
+  milRefresh3D(); toast(`نزلت من ال${U.name}`); save();
+}
+const milRiding = () => state.mil && state.mil.ride;
+function milRideDef() { const S = state.mil, u = S.units.find(x => x.id === S.ride.id); return { u, U: MIL_UNITS[u.t] }; }
+const onRunway = (x, z) => milFac('runway') && Math.abs(z - 142) < 10 && x > 330 && x < 610;
+function milMove(dt) {
+  const S = state.mil, R = S.ride, { u, U } = milRideDef(), p = state.player;
+  const L = keys.has('a') || keys.has('ش') || keys.has('arrowleft'), Rt = keys.has('d') || keys.has('ي') || keys.has('arrowright');
+  let fwd = (keys.has('w') || keys.has('ص') || keys.has('arrowup') ? 1 : 0) - (keys.has('s') || keys.has('س') || keys.has('arrowdown') ? 1 : 0), turn = (L ? 1 : 0) - (Rt ? 1 : 0);
+  if (joy) { fwd = -joy.dy; turn = -joy.dx; }
+  if (U.cat === 'ground') {
+    const target = fwd > 0.1 ? U.speed * Math.min(1, fwd) : fwd < -0.1 ? -4 : 0;
+    R.v += clamp(target - R.v, -8 * dt, 3 * dt);
+    p.yaw += turn * 1.1 * dt * clamp(0.4 + Math.abs(R.v) / U.speed, 0, 1.2) * (R.v < 0 ? -1 : 1);
+    const [nx, nz, hit] = collide(p, p.x - Math.sin(p.yaw) * R.v * dt, p.z - Math.cos(p.yaw) * R.v * dt);
+    if (hit) R.v *= 0.3; p.x = nx; p.z = nz; R.alt = 0;
+  } else if (U.cat === 'heli') {
+    const target = fwd > 0.1 ? U.speed * fwd : fwd < -0.1 ? -8 : 0;
+    R.v += clamp(target - R.v, -10 * dt, 6 * dt);
+    p.yaw += turn * 1.2 * dt;
+    const climb = clamp(player.pitch / 0.45, -1, 1) * 12;
+    R.alt = clamp(R.alt + climb * dt, 0, 400);
+    if (R.alt <= 0.05) { R.alt = 0; R.v *= Math.pow(0.1, dt); }
+    milFly(p, R, dt);
+    player.lean = -turn * Math.min(1, Math.abs(R.v) / U.speed) * 0.25;
+  } else {   // طيارة
+    const target = fwd > 0.1 ? U.speed * fwd : fwd < -0.1 ? 0 : R.v;
+    R.v = clamp(R.v + clamp(target - R.v, -12 * dt, 14 * dt), 0, U.speed);
+    p.yaw += turn * (R.alt > 1 ? 0.7 : 0.5) * dt;
+    const was = R.alt, lift = R.v > U.speed * 0.42;
+    if (was <= 0.05 && !onRunway(p.x, p.z) && R.v > 6) { R.v = Math.max(0, R.v - 30 * dt); toastOnce('🛬 الطيارة تتحرك على الممر بس'); }
+    let na = was;
+    if (lift) na = clamp(was + R.v * Math.sin(clamp(player.pitch, -0.5, 0.6)) * 0.7 * dt, 0, 600);
+    else if (was > 0) na = Math.max(0, was - 18 * dt);   // سرعة قليلة = بتقع
+    if (was > 0.6 && na <= 0.6) {   // لمست الأرض
+      if (!onRunway(p.x, p.z) || R.v > U.speed * 0.75) {
+        u.hp = Math.max(0, u.hp - 60); R.v = 0;
+        toast(u.hp <= 0 ? `💥 ال${U.name} اتدمرت في الهبوط!` : `💥 هبوط اضطراري! ال${U.name} اتضررت (${u.hp}%) · صلّحها من القيادة`, 'bad', 6000);
+        if (u.hp <= 0) { S.ride = null; milLog(`💥 خسرت ${U.name} في حادثة`); milRefresh3D(); save(); return true; }
+      } else toast('🛬 هبوط سليم', 'good');
+      na = 0;
+    }
+    if (na < 0.05) na = 0;
+    R.alt = na;
+    milFly(p, R, dt);
+    player.lean = -turn * 0.6 * (R.alt > 1 ? 1 : 0);
+  }
+  u.x = p.x; u.z = p.z; u.yaw = p.yaw; u.alt = R.alt;
+  const o = milVis.units[u.id]; if (o) { o.m.position.set(p.x, R.alt, p.z); o.m.rotation.set(U.cat === 'jet' && R.alt > 1 ? clamp(player.pitch, -0.4, 0.5) * 0.6 : U.cat === 'heli' ? -Math.min(0.2, R.v / 300) : 0, p.yaw, player.lean || 0, 'YXZ'); }
+  player.moving = Math.abs(R.v) > 0.3;
+  return false;
+}
+// وانت طاير: من غير تصادم مع المباني، جوه حدود العالم
+function milFly(p, R, dt) {
+  if (R.alt < 1) { const [nx, nz, hit] = collide(p, p.x - Math.sin(p.yaw) * R.v * dt, p.z - Math.cos(p.yaw) * R.v * dt); if (hit) R.v *= 0.5; p.x = nx; p.z = nz; return; }
+  const nx = p.x - Math.sin(p.yaw) * R.v * dt, nz = p.z - Math.cos(p.yaw) * R.v * dt;
+  if (nx < -1100 || nx > 760 || nz < -420 || nz > 420) { p.yaw += Math.PI; toastOnce('↩️ دي حدود المجال الجوي بتاعك · لفّيت راجع'); return; }
+  p.x = nx; p.z = nz;
+}
+// ---- القيادة ----
+const MIL_HQ_T = { type: 'milhq', id: 'milhq', verb: 'تدخل مكتب القيادة', act: 'ادخل' };
+const MIL_GATE_T = { type: 'milgate', id: 'milgate', verb: 'تسأل عن الأرض العسكرية', act: 'اسأل' };
+function milTarget() {
+  if (state.inside || inChina()) return null;
+  const p = state.player, S = MILS();
+  if (!S.ride) { const u = nearMilUnit(); if (u) return { type: 'milveh', id: 'mu' + u.id, uid: u.id, verb: `تركب ال${MIL_UNITS[u.t].name}`, act: 'اركب' }; }
+  if (S.owned && Math.hypot(p.x - MIL_HQ.door.x, p.z - (MIL_HQ.door.z + 1)) < 2.4) return MIL_HQ_T;
+  if (!S.owned && p.x > MIL.x0 - 9 && p.x < MIL.x0 && p.z < 6) return MIL_GATE_T;
+  return null;
+}
+let milTab = 'army';
+function milHTML() {
+  const S = MILS();
+  if (!S.owned) return `<div class="msg">🎖️ أرض عسكرية كبيرة شرق المدينة (320 × 320 م) بسور وبوابة ومكتب قيادة وساحة عرض.</div><div class="two"><div class="stat acc"><small>التمن</small><b>${fmt(MIL.price)}</b><small>بعد كده تبني ثكنات وجراجات ومهابط وممر طيارات</small></div><div class="stat"><small>معاك</small><b>${fmt(state.money)}</b><small>${state.bank && state.bank.open ? `والبنك ${fmt(state.bank.balance)}` : ''}</small></div></div><div class="actions"><button class="btn pri" type="button" data-act="mlLand">اشتري الأرض العسكرية</button></div>`;
+  const p = milPower(), tabs = [['army', '🎖️ الجيش'], ['troops', '🪖 الأفراد'], ['kits', '🔫 السلاح'], ['ground', '🛡️ مدرعات'], ['air', '✈️ طيران'], ['base', '🏗️ القاعدة'], ['units', '🔧 معداتك']];
+  let h = `<div class="seg rtabs">${tabs.map(([k, n]) => `<button type="button" class="${milTab === k ? 'on' : ''}" data-act="mlTab:${k}">${n}</button>`).join('')}</div>`;
+  if (milTab === 'army') {
+    h += `<div class="two"><div class="stat acc"><small>القوة العسكرية</small><b>${p.toLocaleString('en-US')}</b><small>${milRank(p)}</small></div><div class="stat"><small>مصاريف يومية</small><b>${fmt(milDaily())}</b><small>مرتبات وصيانة · ${S.unpaid ? `⚠️ متأخرة ${S.unpaid} يوم` : 'متدفعة'}</small></div></div>
+      <div class="two"><div class="stat"><small>الأفراد</small><b>${milSoldiers()} / ${milCapTroops()}</b><small>مقاتلين ${milCombat()} · طاقم ${milCount('crew')}/${milCrewNeed()} · طيارين ${milCount('pilot')}/${milPilotNeed()}</small></div><div class="stat"><small>التدريب · المعنويات</small><b>${Math.round(S.train)}% · ${Math.round(S.morale)}%</b><small>حد التدريب ${milTrainCap()}%</small></div></div>
+      <div class="two"><div class="stat"><small>المعدات</small><b>${S.units.filter(u => u.hp > 0).length}</b><small>مدرعات ${milUnitsAt('garage')}/${milCapUnits('garage')} · هليكوبتر ${milUnitsAt('helipad')}/${milCapUnits('helipad')} · طيارات ${milUnitsAt('hangar')}/${milCapUnits('hangar')}</small></div><div class="stat"><small>المخازن</small><b>${milKitsTotal()} / ${milCapKits()}</b><small>بنادق ${S.kits.rifle || 0} · ذخيرة ${S.kits.ammo || 0} · صواريخ ${S.kits.missile || 0}/${milMisNeed()}</small></div></div>
+      <div class="actions"><button class="btn pri" type="button" data-act="mlTrain" ${S.trainDay === state.day ? 'disabled' : ''}>🎯 تدريب النهارده (ساعتين)</button><button class="btn" type="button" data-act="mlParade">🎖️ عرض عسكري · 500,000</button></div>
+      <p class="note">القوة = العدد × السلاح × التدريب × المعنويات. المدرعات محتاجة طاقم والطيارات محتاجة طيارين، ومن غيرهم قوتها ضعيفة. المرتبات بتتخصم كل يوم، ولو اتأخرت المعنويات بتقع والعساكر بيهربوا. المنافسين بيعملوا حساب لجيشك وبيقللوا لعبهم الوسخ.</p>
+      <p class="note">🗺️ حروب المدن والتوسع: قريبًا، على قوة جيشك دي.</p>
+      ${S.log.length ? `<table class="ledger"><tbody>${S.log.slice(0, 8).map(x => `<tr><td>ي${x.d} · ${x.x}</td></tr>`).join('')}</tbody></table>` : ''}`;
+  } else if (milTab === 'troops') {
+    h += `<p class="note">المكان: ${milSoldiers()} من ${milCapTroops()} فرد (كل ثكنة 150)</p>` + Object.entries(MIL_TROOPS).map(([k, T]) => {
+      const ok = !T.need || milFac(T.need);
+      return `<div class="hr-row"><div class="hr-top"><b>${T.icon} ${T.name} · ${milCount(k)}</b><span>${fmt(T.hire)} + ${fmt(T.day)}/يوم</span></div><small class="when">${T.combat ? `قوة ${T.pow} لكل فرد` : k === 'crew' ? 'كل مدرعة محتاجة طاقم' : 'كل هليكوبتر وطيارة محتاجة طيارين'}${ok ? '' : ` · محتاج ${MIL_FAC[T.need].name}`}</small>
+        <div class="actions">${[1, 10, 50].map(n => `<button class="btn" type="button" data-act="mlHire:${k}|${n}" ${ok ? '' : 'disabled'}>+${n} · ${fmt(T.hire * n)}</button>`).join('')}${milCount(k) ? `<button class="btn" type="button" data-act="mlFire:${k}|10">سرّح 10</button>` : ''}</div></div>`;
+    }).join('');
+  } else if (milTab === 'kits') {
+    h += `<p class="note">المخازن: ${milKitsTotal()} من ${milCapKits()} قطعة</p>` + Object.entries(MIL_KITS).map(([k, K]) => `<div class="hr-row"><div class="hr-top"><b>${K.icon} ${K.name} · ${S.kits[k] || 0}</b><span>${fmt(K.price)}</span></div><small class="when">${K.desc}</small><div class="actions">${[10, 50, 100].map(n => `<button class="btn" type="button" data-act="mlKit:${k}|${n}">+${n} · ${fmt(K.price * n)}</button>`).join('')}</div></div>`).join('');
+  } else if (milTab === 'ground' || milTab === 'air') {
+    const cats = milTab === 'ground' ? ['ground'] : ['drone', 'heli', 'jet'];
+    h += Object.entries(MIL_UNITS).filter(([, U]) => cats.includes(U.cat)).map(([k, U]) => `<div class="hr-row"><div class="hr-top"><b>${U.icon} ${U.name} · عندك ${S.units.filter(u => u.t === k && u.hp > 0).length}</b><span>${fmt(U.price)}</span></div><small class="when">قوة ${U.pow} · صيانة ${fmt(U.day)}/يوم${U.crew ? ` · طاقم ${U.crew}` : ''}${U.pilots ? ` · ${U.pilots} طيار` : ''}${U.mis ? ` · محتاجة صواريخ` : ''}${U.speed ? ` · سرعة ${Math.round(U.speed * 3.6)} كم/س` : ''}${U.cat === 'jet' ? ' · محتاجة ممر وهانجر' : U.cat === 'heli' ? ' · محتاجة مهبط' : U.cat === 'ground' ? ' · محتاجة جراج' : ''}${U.cat === 'drone' ? '' : ' · تقدر تسوقها بنفسك'}</small><div class="actions"><button class="btn ${state.money >= U.price ? 'pri' : ''}" type="button" data-act="mlUnit:${k}">اشتري</button></div></div>`).join('');
+  } else if (milTab === 'base') {
+    h += Object.entries(MIL_FAC).map(([k, F]) => `<div class="hr-row"><div class="hr-top"><b>${F.icon} ${F.name} · ${milFac(k)}/${F.max}</b><span>${fmt(F.price)}</span></div><small class="when">${F.desc}${F.need && !milFac(F.need) ? ` · محتاج ${MIL_FAC[F.need].name}` : ''}</small><div class="actions"><button class="btn" type="button" data-act="mlBuild:${k}" ${milFac(k) >= F.max ? 'disabled' : ''}>${milFac(k) >= F.max ? 'وصلت للحد' : 'ابني'}</button></div></div>`).join('');
+  } else {
+    const L = S.units.filter(u => u.hp > 0);
+    h += L.length ? L.map(u => { const U = MIL_UNITS[u.t], rc = Math.round(U.price * (100 - u.hp) / 100 * 0.35); return `<div class="hr-row"><div class="hr-top"><b>${U.icon} ${U.name} #${u.id}</b><span>${u.hp}%</span></div><small class="when">${(u.alt || 0) > 1 ? 'طايرة' : inMil(u.x, u.z) ? 'في القاعدة' : 'برا القاعدة'}</small><div class="actions">${u.hp < 100 ? `<button class="btn pri" type="button" data-act="mlFix:${u.id}">صلّح · ${fmt(rc)}</button>` : ''}<button class="btn" type="button" data-act="mlHome:${u.id}">رجّعها مكانها</button><button class="btn" type="button" data-act="mlSell:${u.id}">بيع مستعمل · ${fmt(Math.round(U.price * 0.55 * u.hp / 100))}</button></div></div>`; }).join('') : '<p class="note">معندكش معدات لسه.</p>';
+  }
+  return h;
+}
+function milActs() {
+  const hire = (v, f) => { const [k, n] = v.split('|'); f(k, +n); rerender(); };
+  return {
+    mlLand: () => { milBuyLand(); rerender(); }, mlTab: k => { milTab = k; rerender(); },
+    mlHire: v => hire(v, milHire), mlFire: v => hire(v, milFire), mlKit: v => hire(v, milBuyKit),
+    mlUnit: k => { milBuyUnit(k); rerender(); }, mlBuild: k => { milBuild(k); rerender(); },
+    mlTrain: () => { milTrain(); rerender(); }, mlParade: () => { milParade(); rerender(); },
+    mlFix: id => { milRepair(+id); rerender(); }, mlSell: id => { if (confirm('تبيعها؟')) { milSell(+id); rerender(); } },
+    mlHome: id => { const u = MILS().units.find(x => x.id === +id); if (u && !(MILS().ride && MILS().ride.id === u.id)) { milPark(u); milRefresh3D(); save(); toast('رجعت مكانها في القاعدة'); } rerender(); },
+  };
+}
+function milPanel() { openPanel('🎖️ القيادة العسكرية', 'جيشك ومعداتك وقاعدتك', b => { b.innerHTML = milHTML(); bind(b, milActs()); }); }
+// الخريطة الصغيرة
+function drawEastMini(W, H) {
+  const p = state.player, k = W / 240, X = x => (x - p.x) * k + W / 2, Z = z => (z - p.z) * k + H / 2, S = state.mil;
+  mctx.fillStyle = '#cfae74'; mctx.fillRect(0, 0, W, H);
+  mctx.fillStyle = '#3a3e45'; mctx.fillRect(X(200), Z(5), (MIL.x0 - 200) * k, 8 * k);
+  mctx.strokeStyle = '#6b6650'; mctx.lineWidth = 2; mctx.strokeRect(X(MIL.x0), Z(MIL.z0), (MIL.x1 - MIL.x0) * k, (MIL.z1 - MIL.z0) * k);
+  if (S && S.owned) {
+    mctx.fillStyle = '#4b5320';
+    for (const w of milRects()) mctx.fillRect(X(w.x0), Z(w.z0), (w.x1 - w.x0) * k, (w.z1 - w.z0) * k);
+    if (milFac('runway')) { mctx.fillStyle = '#2e3138'; mctx.fillRect(X(330), Z(132), 280 * k, 20 * k); }
+    for (const u of S.units) if (u.hp > 0) { mctx.fillStyle = MIL_UNITS[u.t].cat === 'ground' ? '#556b2f' : '#4fa8e0'; mctx.fillRect(X(u.x) - 2, Z(u.z) - 2, 4, 4); }
+  }
+  mctx.save(); mctx.translate(W / 2, H / 2); mctx.rotate(-p.yaw); mctx.fillStyle = '#f4b81c'; mctx.beginPath(); mctx.moveTo(0, -6); mctx.lineTo(4, 5); mctx.lineTo(-4, 5); mctx.fill(); mctx.restore();
+}
+
 function netWorth() {
   let w = state.money + (state.bank ? state.bank.balance : 0) + (state.cny || 0) * fxSell();
   if (isOwned(BIGSHOP())) w += BIGSHOP().price; if (state.owned.market) w += MK.price;
@@ -12642,6 +13138,7 @@ function currentTarget() {
   if (nearPickup()) return PICKUP;
   { const gt = nearGirl(); if (gt) return gt; }
   { const rt = nearRival(); if (rt) return rt; }
+  { const mt2 = milTarget(); if (mt2) return mt2; }
   { const st = nearShowroom() || nearMatBay() || nearHomeDoor() || nearSite(); if (st) return st; }
   const pl = nearPlace(); if (pl) return pl;
   if (!state.riding && nearRanda()) return RANDA;
@@ -12678,6 +13175,8 @@ function interact() {
   if (t.type === 'showroom') return showroomPanel();
   if (t.type === 'girl') return girlPanel(t.gid);
   if (t.type === 'rival') return rivPanel(t.rid);
+  if (t.type === 'milhq' || t.type === 'milgate') return milPanel();
+  if (t.type === 'milveh') { const u = MILS().units.find(x => x.id === t.uid); if (u) milEnter(u); return; }
   if (t.type === 'venue') { const v = VENUE_SHOPS[t.n]; return v === 'gifts' ? giftShopPanel(9) : v === 'jewel' ? giftShopPanel(10) : venueSoloPanel(v); }
   if (t.type === 'lhome') { if (state.riding) toggleRide(); const q = state.player; state.homeFrom = { x: q.x, z: q.z, yaw: q.yaw + Math.PI }; return enterHome(); }
   if (t.type === 'hwife') return wifePanel();
@@ -12745,12 +13244,13 @@ let lastKey = '';
 function updatePrompt() {
   const t = currentTarget(), veh = panelOpen() ? null : nearVehicle();
   $('#hint').hidden = isTouch || locked || panelOpen() || isTouchUI();
-  const rideShow = !panelOpen() && !state.inside && !!(state.riding || veh);
-  const key = [t ? t.type + (t.id || '') : '', veh, state.riding, rideShow, t && t.type === 'forsale' ? isOwned(t) : '', state.riding && isFleet(state.riding) ? Math.round(Math.abs(rideV) * 3.6 / 2) : ''].join('|');
+  const mr = milRiding(), rideShow = !panelOpen() && !state.inside && !!(state.riding || veh || mr);
+  const key = [t ? t.type + (t.id || '') : '', veh, state.riding, rideShow, t && t.type === 'forsale' ? isOwned(t) : '', state.riding && isFleet(state.riding) ? Math.round(Math.abs(rideV) * 3.6 / 2) : '', mr ? Math.round(Math.abs(mr.v) * 3.6 / 2) + ':' + Math.round(mr.alt) : ''].join('|');
   if (key === lastKey) return; lastKey = key;
   const pr = $('#prompt'), act = $('#act'), ride = $('#ride');
   act.hidden = !t; ride.hidden = !rideShow;
-  ride.textContent = state.riding ? 'انزل' : 'اركب';
+  ride.textContent = state.riding || mr ? 'انزل' : 'اركب';
+  if (mr) { const { U } = milRideDef(); pr.hidden = false; pr.textContent = `${U.icon} ${U.name} · ${Math.round(Math.abs(mr.v) * 3.6)} كم/س${U.cat === 'ground' ? '' : ` · ارتفاع ${Math.round(mr.alt)} م`}`; act.hidden = true; return; }
   if (t) { pr.hidden = false; pr.innerHTML = `<span class="kb">اضغط <kbd>E</kbd> عشان </span>${verbFor(t)}`; act.textContent = actLabel(t); }
   else if (veh) { pr.hidden = false; pr.innerHTML = `<span class="kb">اضغط <kbd>F</kbd> عشان </span>تركب ال${vdef(veh).name}`; }
   else if (state.riding && isFleet(state.riding)) { pr.hidden = false; pr.textContent = `${vdef(state.riding).name} · ${Math.round(Math.abs(rideV) * 3.6)} كم/س`; }
@@ -12764,6 +13264,7 @@ function checkFaint() {
   if (fee > 0) Economy.spend(fee, 'مصاريف المستشفى');
   state.needs = { food: 50, drink: 50, energy: 60, health: 45 };
   if (state.riding) { Object.assign(state.vehicles[state.riding], { x: state.player.x, z: state.player.z, yaw: state.player.yaw }); state.riding = null; rideV = 0; }
+  if (state.mil && state.mil.ride) { const u = state.mil.units.find(x => x.id === state.mil.ride.id); if (u) { u.x = state.player.x; u.z = state.player.z; u.alt = 0; } state.mil.ride = null; }
   state.inside = null;
   if (inChina()) {
     const cf = 1800; if (!Yuan.spend(Math.min(cf, state.cny || 0), 'مستشفى في الصين')) {} ;
